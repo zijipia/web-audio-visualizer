@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
 interface BassPulseProps {
   frequencyData: Uint8Array;
@@ -13,8 +13,12 @@ export function BassPulse({ frequencyData, backgroundImage }: BassPulseProps) {
 
   useEffect(() => {
     // Extract bass frequencies (first 10% of frequency data)
-    const bassRange = frequencyData.slice(0, Math.floor(frequencyData.length * 0.1));
-    const average = bassRange.reduce((a, b) => a + b, 0) / bassRange.length / 255;
+    const bassRange = frequencyData.slice(
+      0,
+      Math.floor(frequencyData.length * 0.1),
+    );
+    const average =
+      bassRange.reduce((a, b) => a + b, 0) / bassRange.length / 255;
 
     setBassIntensity(average);
 
@@ -37,7 +41,7 @@ export function BassPulse({ frequencyData, backgroundImage }: BassPulseProps) {
         style={{
           backgroundImage: `url(${backgroundImage})`,
           transform: `scale(${scale})`,
-          opacity: 0.3,
+          opacity: 0.3 + scale,
         }}
       />
 
