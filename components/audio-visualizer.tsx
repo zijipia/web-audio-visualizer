@@ -17,6 +17,17 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
   sensitivity: 1,
   lineWidth: 3,
   radialBoost: 0.75,
+  startFrequency: 20,
+  endFrequency: 16000,
+  frequencyBands: 96,
+  maximumHeight: 0.82,
+  audioDurationMs: 280,
+  audioOffsetMs: 80,
+  thickness: 3,
+  softness: 0.25,
+  rotationSpeed: 0.9,
+  glow: 14,
+  blockSize: 10,
   colorScheme: "sunset",
   mirror: true,
 };
@@ -96,6 +107,7 @@ export function AudioVisualizer() {
         onSeek={audio.seek}
         onExportCanvasReady={setExportCanvas}
         settings={settings}
+        sampleRate={audio.audioContext?.sampleRate ?? 44100}
       />
 
       <FileUpload

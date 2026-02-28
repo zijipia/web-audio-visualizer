@@ -144,19 +144,138 @@ export function PlaybackControls({
       </div>
 
       {showSettings && (
-        <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-4">
           <label className="space-y-1">
-            <span>Bar count: {settings.barCount}</span>
+            <span>Start Frequency: {settings.startFrequency} Hz</span>
             <input
               type="range"
-              min={24}
-              max={180}
-              step={2}
-              value={settings.barCount}
+              min={0}
+              max={20000}
+              step={10}
+              value={settings.startFrequency}
               onChange={(event) =>
                 onSettingsChange({
                   ...settings,
-                  barCount: Number(event.target.value),
+                  startFrequency: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>End Frequency: {settings.endFrequency} Hz</span>
+            <input
+              type="range"
+              min={100}
+              max={22000}
+              step={10}
+              value={settings.endFrequency}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  endFrequency: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Frequency bands: {settings.frequencyBands}</span>
+            <input
+              type="range"
+              min={16}
+              max={256}
+              step={2}
+              value={settings.frequencyBands}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  frequencyBands: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Maximum Height: {settings.maximumHeight.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0.2}
+              max={1}
+              step={0.01}
+              value={settings.maximumHeight}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  maximumHeight: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Audio Duration: {settings.audioDurationMs} ms</span>
+            <input
+              type="range"
+              min={30}
+              max={1200}
+              step={10}
+              value={settings.audioDurationMs}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  audioDurationMs: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Audio Offset: {settings.audioOffsetMs} ms</span>
+            <input
+              type="range"
+              min={16}
+              max={500}
+              step={4}
+              value={settings.audioOffsetMs}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  audioOffsetMs: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Thickness: {settings.thickness.toFixed(1)}</span>
+            <input
+              type="range"
+              min={1}
+              max={14}
+              step={0.5}
+              value={settings.thickness}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  thickness: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Softness: {settings.softness.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={settings.softness}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  softness: Number(event.target.value),
                 })
               }
             />
@@ -180,34 +299,51 @@ export function PlaybackControls({
           </label>
 
           <label className="space-y-1">
-            <span>Line width: {settings.lineWidth.toFixed(1)}</span>
+            <span>Rotation: {settings.rotationSpeed.toFixed(2)}</span>
             <input
               type="range"
-              min={1}
-              max={8}
-              step={0.5}
-              value={settings.lineWidth}
+              min={-4}
+              max={4}
+              step={0.05}
+              value={settings.rotationSpeed}
               onChange={(event) =>
                 onSettingsChange({
                   ...settings,
-                  lineWidth: Number(event.target.value),
+                  rotationSpeed: Number(event.target.value),
                 })
               }
             />
           </label>
 
           <label className="space-y-1">
-            <span>Radial boost: {settings.radialBoost.toFixed(2)}</span>
+            <span>Glow: {settings.glow.toFixed(0)}</span>
             <input
               type="range"
               min={0}
-              max={1.5}
-              step={0.05}
-              value={settings.radialBoost}
+              max={40}
+              step={1}
+              value={settings.glow}
               onChange={(event) =>
                 onSettingsChange({
                   ...settings,
-                  radialBoost: Number(event.target.value),
+                  glow: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Block Size: {settings.blockSize.toFixed(0)} px</span>
+            <input
+              type="range"
+              min={3}
+              max={30}
+              step={1}
+              value={settings.blockSize}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  blockSize: Number(event.target.value),
                 })
               }
             />
