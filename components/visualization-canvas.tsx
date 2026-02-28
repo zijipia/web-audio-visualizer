@@ -6,10 +6,20 @@ export type VisualizationMode = "bars" | "waveform" | "circular";
 export type SpectrumColorScheme = "sunset" | "neon" | "fire";
 
 export interface SpectrumSettings {
-  barCount: number;
+  frequencyBands: number;
+  startFrequency: number;
+  endFrequency: number;
   sensitivity: number;
-  lineWidth: number;
+  thickness: number;
+  softness: number;
+  maxHeight: number;
+  audioDurationMs: number;
+  audioOffsetMs: number;
   radialBoost: number;
+  rotationSpeed: number;
+  glow: boolean;
+  segmented: boolean;
+  fallSpeed: number;
   colorScheme: SpectrumColorScheme;
   mirror: boolean;
 }
@@ -17,12 +27,37 @@ export interface SpectrumSettings {
 interface VisualizationCanvasProps {
   frequencyData: Uint8Array;
   timeData: Uint8Array;
+  sampleRate: number;
   mode: VisualizationMode;
   duration: number;
   currentTime: number;
   onSeek: (time: number) => void;
   onExportCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
   settings: SpectrumSettings;
+}
+
+function resolveFrequencyRange(
+  data: Uint8Array,
+  sampleRate: number,
+  settings: SpectrumSettings,
+) {
+  const nyquist = sampleRate / 2;
+  const boundedStart = Math.max(0, Math.min(settings.startFrequency, nyquist));
+  const boundedEnd = Math.max(
+    boundedStart + 1,
+    Math.min(settings.endFrequency, nyquist),
+  );
+
+  const startIndex = Math.floor((boundedStart / nyquist) * data.length);
+  const endIndex = Math.max(
+    startIndex + 1,
+    Math.floor((boundedEnd / nyquist) * data.length),
+  );
+
+  return {
+    startIndex,
+    endIndex: Math.min(data.length, endIndex),
+  };
 }
 
 function createGradient(
@@ -58,39 +93,78 @@ function drawBars(
   data: Uint8Array,
   width: number,
   height: number,
+  sampleRate: number,
   settings: SpectrumSettings,
+  displayState: Float32Array,
+  deltaMs: number,
 ) {
-  const count = Math.max(16, Math.min(settings.barCount, data.length));
+  const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
+  const usableLength = Math.max(1, endIndex - startIndex);
+  const count = Math.max(12, Math.min(settings.frequencyBands, usableLength));
   const barWidth = width / count;
   const gradient = createGradient(ctx, 0, height, settings.colorScheme);
+  const maxDrawableHeight = height * settings.maxHeight;
+  const decayPerFrame = (settings.fallSpeed * deltaMs) / 16.67;
 
-  ctx.fillStyle = "rgba(10,14,39,0.16)";
+  ctx.fillStyle = `rgba(10,14,39,${0.12 + (1 - settings.softness) * 0.24})`;
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = gradient;
+  ctx.shadowColor = settings.glow ? "rgba(255,255,255,0.7)" : "transparent";
+  ctx.shadowBlur = settings.glow ? 12 + settings.softness * 24 : 0;
 
   const startX = settings.mirror ? width / 2 : 0;
+  const halfWidth = Math.max(1, barWidth / (settings.mirror ? 2 : 1) - 1.5);
 
   for (let i = 0; i < count; i += 1) {
-    const sourceIndex = Math.floor((i / count) * data.length);
+    const sourceIndex =
+      startIndex + Math.floor((i / count) * Math.max(1, usableLength - 1));
 
     const value = Math.min(
       1,
       ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity,
     );
 
-    const barHeight = value * (height * 0.78);
+    const targetHeight = value * maxDrawableHeight;
+    const easedHeight = Math.max(targetHeight, (displayState[i] ?? 0) - decayPerFrame);
+    displayState[i] = easedHeight;
+    const barHeight = easedHeight;
     const y = height - barHeight;
+
+    const drawSegmentedBar = (x: number) => {
+      if (!settings.segmented) {
+        ctx.fillRect(x, y, halfWidth, barHeight);
+        return;
+      }
+
+      const segmentHeight = Math.max(4, settings.thickness * 2.2);
+      const segmentGap = Math.max(1, settings.thickness * 0.5);
+      const segments = Math.floor(barHeight / (segmentHeight + segmentGap));
+
+      for (let segmentIndex = 0; segmentIndex <= segments; segmentIndex += 1) {
+        const segmentY =
+          height -
+          (segmentIndex + 1) * segmentHeight -
+          segmentIndex * segmentGap;
+        const topSlowdown = 1 - segmentIndex / Math.max(1, segments + 1);
+        const opacity = 0.4 + topSlowdown * 0.6;
+
+        ctx.globalAlpha = opacity;
+        ctx.fillRect(x, segmentY, halfWidth, segmentHeight);
+      }
+      ctx.globalAlpha = 1;
+    };
 
     if (settings.mirror) {
       const xR = startX + i * (barWidth / 2);
       const xL = startX - (i + 1) * (barWidth / 2);
-      ctx.fillRect(xR + 0.5, y, Math.max(1, barWidth / 2 - 1.5), barHeight);
-      ctx.fillRect(xL + 0.5, y, Math.max(1, barWidth / 2 - 1.5), barHeight);
+      drawSegmentedBar(xR + 0.5);
+      drawSegmentedBar(xL + 0.5);
     } else {
       const x = i * barWidth;
-      ctx.fillRect(x + 1, y, Math.max(1, barWidth - 2.5), barHeight);
+      drawSegmentedBar(x + 1);
     }
   }
+  ctx.shadowBlur = 0;
 }
 
 function drawWaveform(
@@ -104,7 +178,9 @@ function drawWaveform(
   ctx.fillRect(0, 0, width, height);
 
   ctx.strokeStyle = createGradient(ctx, width, 0, settings.colorScheme);
-  ctx.lineWidth = settings.lineWidth;
+  ctx.lineWidth = settings.thickness;
+  ctx.shadowColor = settings.glow ? "rgba(34,211,238,0.9)" : "transparent";
+  ctx.shadowBlur = settings.glow ? 10 + settings.softness * 16 : 0;
   ctx.beginPath();
 
   const sliceWidth = width / data.length;
@@ -120,6 +196,7 @@ function drawWaveform(
   }
 
   ctx.stroke();
+  ctx.shadowBlur = 0;
 }
 
 function drawCircular(
@@ -127,27 +204,36 @@ function drawCircular(
   data: Uint8Array,
   width: number,
   height: number,
+  sampleRate: number,
   settings: SpectrumSettings,
 ) {
-  ctx.fillStyle = "rgba(10,14,39,0.16)";
+  const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
+  const rangeLength = Math.max(1, endIndex - startIndex);
+  const step = Math.max(1, Math.floor(rangeLength / Math.max(36, settings.frequencyBands)));
+
+  ctx.fillStyle = `rgba(10,14,39,${0.12 + (1 - settings.softness) * 0.24})`;
   ctx.fillRect(0, 0, width, height);
 
   const centerX = width / 2;
   const centerY = height / 2;
   const baseRadius = Math.min(centerX, centerY) * 0.24;
-  const maxLength =
-    Math.min(centerX, centerY) * (0.5 + settings.radialBoost * 0.35);
-  const step = Math.max(
-    1,
-    Math.floor(data.length / Math.max(64, settings.barCount)),
-  );
+  const maxLength = Math.min(centerX, centerY) * (0.38 + settings.maxHeight * 0.62);
+  const spin = (performance.now() / 1000) * settings.rotationSpeed;
 
   ctx.save();
   ctx.translate(centerX, centerY);
+  ctx.rotate(spin);
+  ctx.shadowColor = settings.glow ? "rgba(255,130,80,0.85)" : "transparent";
+  ctx.shadowBlur = settings.glow ? 8 + settings.softness * 18 : 0;
 
-  for (let i = 0; i < data.length; i += step) {
-    const strength = Math.min(1, ((data[i] ?? 0) / 255) * settings.sensitivity);
-    const angle = (i / data.length) * Math.PI * 2;
+  const sweep = settings.mirror ? Math.PI : Math.PI * 2;
+  for (let i = 0; i < rangeLength; i += step) {
+    const sampleIndex = startIndex + i;
+    const strength = Math.min(
+      1,
+      ((data[sampleIndex] ?? 0) / 255) * settings.sensitivity,
+    );
+    const angle = (i / rangeLength) * sweep;
     const length = baseRadius + strength * maxLength;
 
     const x1 = Math.cos(angle) * baseRadius;
@@ -162,13 +248,21 @@ function drawCircular(
           ? 10
           : 30;
     ctx.strokeStyle = `hsla(${hueOffset + strength * 70}, 92%, ${54 + strength * 18}%, 0.94)`;
-    ctx.lineWidth = Math.max(1.5, settings.lineWidth * 0.7);
+    ctx.lineWidth = Math.max(1, settings.thickness * 0.7);
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.stroke();
+
+    if (settings.mirror) {
+      ctx.beginPath();
+      ctx.moveTo(x1, -y1);
+      ctx.lineTo(x2, -y2);
+      ctx.stroke();
+    }
   }
 
+  ctx.shadowBlur = 0;
   ctx.restore();
 }
 
@@ -195,6 +289,7 @@ function drawProgress(
 export function VisualizationCanvas({
   frequencyData,
   timeData,
+  sampleRate,
   mode,
   duration,
   currentTime,
@@ -204,6 +299,8 @@ export function VisualizationCanvas({
 }: VisualizationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const barDisplayStateRef = useRef<Float32Array>(new Float32Array(512));
+  const lastFrameTimeRef = useRef<number>(performance.now());
 
   useEffect(() => {
     const exportCanvas = document.createElement("canvas");
@@ -240,6 +337,10 @@ export function VisualizationCanvas({
 
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+      const now = performance.now();
+      const deltaMs = Math.max(1, now - lastFrameTimeRef.current);
+      lastFrameTimeRef.current = now;
+
       const draw = (
         ctx: CanvasRenderingContext2D,
         width: number,
@@ -248,14 +349,28 @@ export function VisualizationCanvas({
         ctx.clearRect(0, 0, width, height);
 
         if (mode === "bars") {
-          drawBars(ctx, frequencyData, width, height, settings);
+          drawBars(
+            ctx,
+            frequencyData,
+            width,
+            height,
+            sampleRate,
+            settings,
+            barDisplayStateRef.current,
+            deltaMs,
+          );
         } else if (mode === "waveform") {
           drawWaveform(ctx, timeData, width, height, settings);
         } else {
-          drawCircular(ctx, frequencyData, width, height, settings);
+          drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
         }
 
-        drawProgress(ctx, width, height, duration, currentTime);
+        const offsetSec = Math.max(0, settings.audioOffsetMs / 1000);
+        const preferredDuration = settings.audioDurationMs > 0 ? settings.audioDurationMs / 1000 : duration;
+        const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
+        const effectiveTime = Math.max(0, currentTime - offsetSec);
+
+        drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
       };
 
       draw(context, displayWidth, displayHeight);
@@ -265,13 +380,16 @@ export function VisualizationCanvas({
 
     frame = requestAnimationFrame(renderFrame);
     return () => cancelAnimationFrame(frame);
-  }, [mode, frequencyData, timeData, duration, currentTime, settings]);
+  }, [mode, frequencyData, timeData, duration, currentTime, sampleRate, settings]);
 
   const handleSeekFromCanvas = (clientX: number) => {
     if (!duration || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    onSeek(ratio * duration);
+    const offsetSec = Math.max(0, settings.audioOffsetMs / 1000);
+    const preferredDuration = settings.audioDurationMs > 0 ? settings.audioDurationMs / 1000 : duration;
+    const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
+    onSeek(offsetSec + ratio * effectiveDuration);
   };
 
   return (

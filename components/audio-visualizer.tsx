@@ -13,10 +13,20 @@ import {
 import { useAudioContext } from "@/hooks/use-audio-context";
 
 const DEFAULT_SETTINGS: SpectrumSettings = {
-  barCount: 96,
+  frequencyBands: 96,
+  startFrequency: 20,
+  endFrequency: 18000,
   sensitivity: 1,
-  lineWidth: 3,
+  thickness: 3,
+  softness: 0.45,
+  maxHeight: 0.78,
+  audioDurationMs: 0,
+  audioOffsetMs: 0,
   radialBoost: 0.75,
+  rotationSpeed: 0.2,
+  glow: false,
+  segmented: false,
+  fallSpeed: 3,
   colorScheme: "sunset",
   mirror: true,
 };
@@ -91,6 +101,7 @@ export function AudioVisualizer() {
         frequencyData={audio.frequencyData}
         timeData={audio.timeData}
         mode={mode}
+        sampleRate={audio.audioContext?.sampleRate ?? 44100}
         duration={audio.state.duration}
         currentTime={audio.state.currentTime}
         onSeek={audio.seek}

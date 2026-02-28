@@ -144,100 +144,88 @@ export function PlaybackControls({
       </div>
 
       {showSettings && (
-        <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-5">
-          <label className="space-y-1">
-            <span>Bar count: {settings.barCount}</span>
-            <input
-              type="range"
-              min={24}
-              max={180}
-              step={2}
-              value={settings.barCount}
-              onChange={(event) =>
-                onSettingsChange({
-                  ...settings,
-                  barCount: Number(event.target.value),
-                })
-              }
-            />
+        <div className="mt-3 grid gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-4">
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Start Frequency: {settings.startFrequency} Hz</span>
+            <input type="range" min={0} max={20000} step={10} value={settings.startFrequency} onChange={(event) => onSettingsChange({ ...settings, startFrequency: Number(event.target.value) })} />
           </label>
 
-          <label className="space-y-1">
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>End Frequency: {settings.endFrequency} Hz</span>
+            <input type="range" min={100} max={22000} step={10} value={settings.endFrequency} onChange={(event) => onSettingsChange({ ...settings, endFrequency: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Frequency bands: {settings.frequencyBands}</span>
+            <input type="range" min={24} max={180} step={2} value={settings.frequencyBands} onChange={(event) => onSettingsChange({ ...settings, frequencyBands: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Maximum Height: {Math.round(settings.maxHeight * 100)}%</span>
+            <input type="range" min={0.2} max={1} step={0.01} value={settings.maxHeight} onChange={(event) => onSettingsChange({ ...settings, maxHeight: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Audio Duration (milliseconds): {settings.audioDurationMs || 0}</span>
+            <input type="range" min={0} max={600000} step={50} value={settings.audioDurationMs} onChange={(event) => onSettingsChange({ ...settings, audioDurationMs: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Audio Offset (milliseconds): {settings.audioOffsetMs}</span>
+            <input type="range" min={0} max={120000} step={50} value={settings.audioOffsetMs} onChange={(event) => onSettingsChange({ ...settings, audioOffsetMs: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Thickness: {settings.thickness.toFixed(1)}</span>
+            <input type="range" min={1} max={12} step={0.5} value={settings.thickness} onChange={(event) => onSettingsChange({ ...settings, thickness: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Softness: {settings.softness.toFixed(2)}</span>
+            <input type="range" min={0} max={1} step={0.01} value={settings.softness} onChange={(event) => onSettingsChange({ ...settings, softness: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Fall Speed: {settings.fallSpeed.toFixed(1)}</span>
+            <input type="range" min={0.2} max={12} step={0.1} value={settings.fallSpeed} onChange={(event) => onSettingsChange({ ...settings, fallSpeed: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Rotation: {settings.rotationSpeed.toFixed(2)}x</span>
+            <input type="range" min={-2} max={2} step={0.01} value={settings.rotationSpeed} onChange={(event) => onSettingsChange({ ...settings, rotationSpeed: Number(event.target.value) })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
             <span>Sensitivity: {settings.sensitivity.toFixed(2)}</span>
-            <input
-              type="range"
-              min={0.6}
-              max={2}
-              step={0.05}
-              value={settings.sensitivity}
-              onChange={(event) =>
-                onSettingsChange({
-                  ...settings,
-                  sensitivity: Number(event.target.value),
-                })
-              }
-            />
+            <input type="range" min={0.6} max={2} step={0.05} value={settings.sensitivity} onChange={(event) => onSettingsChange({ ...settings, sensitivity: Number(event.target.value) })} />
           </label>
 
-          <label className="space-y-1">
-            <span>Line width: {settings.lineWidth.toFixed(1)}</span>
-            <input
-              type="range"
-              min={1}
-              max={8}
-              step={0.5}
-              value={settings.lineWidth}
-              onChange={(event) =>
-                onSettingsChange({
-                  ...settings,
-                  lineWidth: Number(event.target.value),
-                })
-              }
-            />
-          </label>
-
-          <label className="space-y-1">
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
             <span>Radial boost: {settings.radialBoost.toFixed(2)}</span>
-            <input
-              type="range"
-              min={0}
-              max={1.5}
-              step={0.05}
-              value={settings.radialBoost}
-              onChange={(event) =>
-                onSettingsChange({
-                  ...settings,
-                  radialBoost: Number(event.target.value),
-                })
-              }
-            />
+            <input type="range" min={0} max={1.5} step={0.05} value={settings.radialBoost} onChange={(event) => onSettingsChange({ ...settings, radialBoost: Number(event.target.value) })} />
           </label>
 
-          <label className="space-y-1">
+          <label className="flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2">
             <span>Mirror</span>
-            <input
-              type="checkbox"
-              checked={settings.mirror}
-              onChange={(event) =>
-                onSettingsChange({
-                  ...settings,
-                  mirror: event.target.checked,
-                })
-              }
-            />
+            <input type="checkbox" checked={settings.mirror} onChange={(event) => onSettingsChange({ ...settings, mirror: event.target.checked })} />
           </label>
 
-          <label className="space-y-1">
+          <label className="flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Glow</span>
+            <input type="checkbox" checked={settings.glow} onChange={(event) => onSettingsChange({ ...settings, glow: event.target.checked })} />
+          </label>
+
+          <label className="flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2">
+            <span>Small blocks</span>
+            <input type="checkbox" checked={settings.segmented} onChange={(event) => onSettingsChange({ ...settings, segmented: event.target.checked })} />
+          </label>
+
+          <label className="space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2">
             <span>Color scheme</span>
             <select
               className="w-full rounded-md border border-white/10 bg-slate-900/70 p-1"
               value={settings.colorScheme}
-              onChange={(event) =>
-                onSettingsChange({
-                  ...settings,
-                  colorScheme: event.target.value as SpectrumColorScheme,
-                })
-              }
+              onChange={(event) => onSettingsChange({ ...settings, colorScheme: event.target.value as SpectrumColorScheme })}
             >
               {SCHEMES.map((scheme) => (
                 <option key={scheme} value={scheme}>
