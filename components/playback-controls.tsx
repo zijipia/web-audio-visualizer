@@ -1,7 +1,9 @@
 'use client';
 
-import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { BarChart3, Circle, Pause, Play, SlidersHorizontal, Volume2, Waves } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { useState } from 'react';
+import type { SpectrumColorScheme, SpectrumSettings, VisualizationMode } from './visualization-canvas';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -9,11 +11,23 @@ interface PlaybackControlsProps {
   duration: number;
   volume: number;
   isLoading: boolean;
+  mode: VisualizationMode;
+  settings: SpectrumSettings;
+  onSettingsChange: (next: SpectrumSettings) => void;
+  onModeChange: (mode: VisualizationMode) => void;
   onPlay: () => void;
   onPause: () => void;
   onSeek: (time: number) => void;
   onVolumeChange: (volume: number) => void;
 }
+
+const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
+  { id: 'bars', icon: <BarChart3 size={16} />, label: 'Bars' },
+  { id: 'waveform', icon: <Waves size={16} />, label: 'Waveform' },
+  { id: 'circular', icon: <Circle size={16} />, label: 'Circular' },
+];
+
+const SCHEMES: SpectrumColorScheme[] = ['sunset', 'neon', 'fire'];
 
 export function PlaybackControls({
   isPlaying,
@@ -21,154 +35,160 @@ export function PlaybackControls({
   duration,
   volume,
   isLoading,
+  mode,
+  settings,
+  onSettingsChange,
+  onModeChange,
   onPlay,
   onPause,
   onSeek,
   onVolumeChange,
 }: PlaybackControlsProps) {
-  const progressRef = useRef<HTMLDivElement>(null);
-  const [isSeekingProgress, setIsSeekingProgress] = useState(false);
-  const [isSeekingVolume, setIsSeekingVolume] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  const formatTime = (time: number): string => {
-    if (!isFinite(time)) return '0:00';
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const formatTime = (value: number) => {
+    if (!Number.isFinite(value)) return '0:00';
+    const minutes = Math.floor(value / 60);
+    const seconds = Math.floor(value % 60);
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
   };
 
-  const handleProgressMouseDown = useCallback(() => {
-    setIsSeekingProgress(true);
-  }, []);
-
-  const handleProgressMouseUp = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!progressRef.current) return;
-      const rect = progressRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const newTime = (x / rect.width) * duration;
-      onSeek(newTime);
-      setIsSeekingProgress(false);
-    },
-    [duration, onSeek]
-  );
-
-  const handleProgressMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isSeekingProgress || !progressRef.current) return;
-      const rect = progressRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const newTime = (x / rect.width) * duration;
-      onSeek(newTime);
-    },
-    [isSeekingProgress, duration, onSeek]
-  );
-
-  const handleVolumeChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newVolume = parseFloat(e.target.value);
-      onVolumeChange(newVolume);
-    },
-    [onVolumeChange]
-  );
-
-  useEffect(() => {
-    if (!isSeekingProgress) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!progressRef.current) return;
-      const rect = progressRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const newTime = (x / rect.width) * duration;
-      onSeek(newTime);
-    };
-
-    const handleMouseUp = () => {
-      setIsSeekingProgress(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isSeekingProgress, duration, onSeek]);
-
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950 to-slate-950/90 backdrop-blur-xl border-t border-slate-800/50 px-6 py-4 space-y-4">
-      {/* Progress Bar */}
-      <div
-        ref={progressRef}
-        onMouseDown={handleProgressMouseDown}
-        onMouseMove={handleProgressMove}
-        onMouseUp={handleProgressMouseUp}
-        className="w-full h-1 bg-slate-800 rounded-full cursor-pointer group hover:h-2 transition-all duration-200"
-      >
-        <div
-          className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-75"
-          style={{ width: `${progressPercent}%` }}
-        />
-        {/* Seek thumb */}
-        <div
-          className="relative -top-1.5 -right-0.5 w-4 h-4 bg-orange-400 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
-          style={{ left: `calc(${progressPercent}% - 8px)` }}
+    <div className="fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl md:inset-x-8">
+      <div className="mb-3">
+        <input
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.01}
+          value={Math.min(currentTime, duration || 0)}
+          onChange={(event) => onSeek(Number(event.target.value))}
+          className="h-1.5 w-full"
+          aria-label="Seek"
         />
       </div>
 
-      {/* Controls Row */}
-      <div className="flex items-center justify-between">
-        {/* Left Side - Play/Pause */}
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
           <button
             onClick={isPlaying ? onPause : onPlay}
             disabled={isLoading}
-            className="p-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-110 active:scale-95"
+            className="rounded-full bg-orange-500 p-3 text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
-            {isLoading ? (
-              <div className="animate-spin">
-                <Play size={24} />
-              </div>
-            ) : isPlaying ? (
-              <Pause size={24} fill="currentColor" />
-            ) : (
-              <Play size={24} fill="currentColor" />
-            )}
+            {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
           </button>
 
-          {/* Time Display */}
-          <div className="flex items-center gap-2 text-sm font-mono text-slate-300">
-            <span>{formatTime(currentTime)}</span>
-            <span className="text-slate-600">/</span>
-            <span>{formatTime(duration)}</span>
-          </div>
-        </div>
-
-        {/* Right Side - Volume */}
-        <div className="flex items-center gap-3">
-          {volume === 0 ? (
-            <VolumeX size={20} className="text-slate-400" />
-          ) : (
-            <Volume2 size={20} className="text-slate-400" />
-          )}
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={volume}
-            onChange={handleVolumeChange}
-            className="w-20 h-1 bg-slate-700 rounded-full appearance-none cursor-pointer accent-orange-500"
-          />
-          <span className="w-10 text-right text-xs text-slate-500 font-mono">
-            {Math.round(volume * 100)}%
+          <span className="font-mono text-sm text-slate-100">
+            {formatTime(currentTime)} / {formatTime(duration)}
           </span>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-900/40 p-1">
+          {MODES.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onModeChange(item.id)}
+              className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${
+                mode === item.id ? 'bg-orange-500 text-white' : 'text-slate-200 hover:bg-white/10'
+              }`}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+
+          <button
+            onClick={() => setShowSettings((prev) => !prev)}
+            className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${
+              showSettings ? 'bg-cyan-500 text-white' : 'text-slate-200 hover:bg-white/10'
+            }`}
+          >
+            <SlidersHorizontal size={15} /> Tune
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 md:w-44">
+          <Volume2 size={18} className="text-slate-100" />
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(event) => onVolumeChange(Number(event.target.value))}
+            className="h-1.5 w-full"
+            aria-label="Volume"
+          />
+        </div>
       </div>
+
+      {showSettings && (
+        <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-5">
+          <label className="space-y-1">
+            <span>Bar count: {settings.barCount}</span>
+            <input
+              type="range"
+              min={24}
+              max={180}
+              step={2}
+              value={settings.barCount}
+              onChange={(event) => onSettingsChange({ ...settings, barCount: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Sensitivity: {settings.sensitivity.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0.6}
+              max={2}
+              step={0.05}
+              value={settings.sensitivity}
+              onChange={(event) => onSettingsChange({ ...settings, sensitivity: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Line width: {settings.lineWidth.toFixed(1)}</span>
+            <input
+              type="range"
+              min={1}
+              max={8}
+              step={0.5}
+              value={settings.lineWidth}
+              onChange={(event) => onSettingsChange({ ...settings, lineWidth: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Radial boost: {settings.radialBoost.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.05}
+              value={settings.radialBoost}
+              onChange={(event) => onSettingsChange({ ...settings, radialBoost: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Color scheme</span>
+            <select
+              className="w-full rounded-md border border-white/10 bg-slate-900/70 p-1"
+              value={settings.colorScheme}
+              onChange={(event) => onSettingsChange({ ...settings, colorScheme: event.target.value as SpectrumColorScheme })}
+            >
+              {SCHEMES.map((scheme) => (
+                <option key={scheme} value={scheme}>
+                  {scheme}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
     </div>
   );
 }

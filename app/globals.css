@@ -40,7 +40,7 @@
   --sidebar-ring: oklch(0.708 0 0);
   
   /* Audio Visualizer Dark Theme */
-  --viz-bg-primary: #0f172a;
+  --viz-bg-primary: #0a0e27;
   --viz-bg-secondary: #1e293b;
   --viz-text-primary: #f1f5f9;
   --viz-text-secondary: #cbd5e1;
@@ -52,7 +52,7 @@
 
 .dark {
   /* Dark mode - primary theme */
-  --background: #0f172a;
+  --background: #0a0e27;
   --foreground: #f1f5f9;
   --card: #1e293b;
   --card-foreground: #f1f5f9;
