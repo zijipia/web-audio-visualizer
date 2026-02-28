@@ -1,8 +1,9 @@
 'use client';
 
-import { BarChart3, Circle, Pause, Play, Volume2, Waves } from 'lucide-react';
+import { BarChart3, Circle, Pause, Play, SlidersHorizontal, Volume2, Waves } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { VisualizationMode } from './visualization-canvas';
+import { useState } from 'react';
+import type { SpectrumColorScheme, SpectrumSettings, VisualizationMode } from './visualization-canvas';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -11,6 +12,8 @@ interface PlaybackControlsProps {
   volume: number;
   isLoading: boolean;
   mode: VisualizationMode;
+  settings: SpectrumSettings;
+  onSettingsChange: (next: SpectrumSettings) => void;
   onModeChange: (mode: VisualizationMode) => void;
   onPlay: () => void;
   onPause: () => void;
@@ -24,6 +27,8 @@ const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
   { id: 'circular', icon: <Circle size={16} />, label: 'Circular' },
 ];
 
+const SCHEMES: SpectrumColorScheme[] = ['sunset', 'neon', 'fire'];
+
 export function PlaybackControls({
   isPlaying,
   currentTime,
@@ -31,12 +36,16 @@ export function PlaybackControls({
   volume,
   isLoading,
   mode,
+  settings,
+  onSettingsChange,
   onModeChange,
   onPlay,
   onPause,
   onSeek,
   onVolumeChange,
 }: PlaybackControlsProps) {
+  const [showSettings, setShowSettings] = useState(false);
+
   const formatTime = (value: number) => {
     if (!Number.isFinite(value)) return '0:00';
     const minutes = Math.floor(value / 60);
@@ -75,7 +84,7 @@ export function PlaybackControls({
           </span>
         </div>
 
-        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/40 p-1">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-900/40 p-1">
           {MODES.map((item) => (
             <button
               key={item.id}
@@ -88,6 +97,15 @@ export function PlaybackControls({
               {item.label}
             </button>
           ))}
+
+          <button
+            onClick={() => setShowSettings((prev) => !prev)}
+            className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${
+              showSettings ? 'bg-cyan-500 text-white' : 'text-slate-200 hover:bg-white/10'
+            }`}
+          >
+            <SlidersHorizontal size={15} /> Tune
+          </button>
         </div>
 
         <div className="flex items-center gap-2 md:w-44">
@@ -104,6 +122,73 @@ export function PlaybackControls({
           />
         </div>
       </div>
+
+      {showSettings && (
+        <div className="mt-3 grid gap-2 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-5">
+          <label className="space-y-1">
+            <span>Bar count: {settings.barCount}</span>
+            <input
+              type="range"
+              min={24}
+              max={180}
+              step={2}
+              value={settings.barCount}
+              onChange={(event) => onSettingsChange({ ...settings, barCount: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Sensitivity: {settings.sensitivity.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0.6}
+              max={2}
+              step={0.05}
+              value={settings.sensitivity}
+              onChange={(event) => onSettingsChange({ ...settings, sensitivity: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Line width: {settings.lineWidth.toFixed(1)}</span>
+            <input
+              type="range"
+              min={1}
+              max={8}
+              step={0.5}
+              value={settings.lineWidth}
+              onChange={(event) => onSettingsChange({ ...settings, lineWidth: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Radial boost: {settings.radialBoost.toFixed(2)}</span>
+            <input
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.05}
+              value={settings.radialBoost}
+              onChange={(event) => onSettingsChange({ ...settings, radialBoost: Number(event.target.value) })}
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Color scheme</span>
+            <select
+              className="w-full rounded-md border border-white/10 bg-slate-900/70 p-1"
+              value={settings.colorScheme}
+              onChange={(event) => onSettingsChange({ ...settings, colorScheme: event.target.value as SpectrumColorScheme })}
+            >
+              {SCHEMES.map((scheme) => (
+                <option key={scheme} value={scheme}>
+                  {scheme}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
     </div>
   );
 }

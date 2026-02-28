@@ -3,6 +3,15 @@
 import { useEffect, useRef } from 'react';
 
 export type VisualizationMode = 'bars' | 'waveform' | 'circular';
+export type SpectrumColorScheme = 'sunset' | 'neon' | 'fire';
+
+export interface SpectrumSettings {
+  barCount: number;
+  sensitivity: number;
+  lineWidth: number;
+  radialBoost: number;
+  colorScheme: SpectrumColorScheme;
+}
 
 interface VisualizationCanvasProps {
   frequencyData: Uint8Array;
@@ -12,45 +21,66 @@ interface VisualizationCanvasProps {
   currentTime: number;
   onSeek: (time: number) => void;
   onExportCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
+  settings: SpectrumSettings;
 }
 
-function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number) {
-  const count = Math.max(32, Math.floor(data.length * 0.6));
-  const barWidth = width / count;
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, '#fb923c');
-  gradient.addColorStop(1, '#f59e0b');
+function createGradient(ctx: CanvasRenderingContext2D, width: number, height: number, scheme: SpectrumColorScheme) {
+  const gradient = ctx.createLinearGradient(0, 0, width, height);
 
-  ctx.fillStyle = 'rgba(10,14,39,0.2)';
+  if (scheme === 'neon') {
+    gradient.addColorStop(0, '#22d3ee');
+    gradient.addColorStop(0.5, '#a78bfa');
+    gradient.addColorStop(1, '#f472b6');
+    return gradient;
+  }
+
+  if (scheme === 'fire') {
+    gradient.addColorStop(0, '#facc15');
+    gradient.addColorStop(0.5, '#f97316');
+    gradient.addColorStop(1, '#ef4444');
+    return gradient;
+  }
+
+  gradient.addColorStop(0, '#fb923c');
+  gradient.addColorStop(0.5, '#f59e0b');
+  gradient.addColorStop(1, '#06b6d4');
+  return gradient;
+}
+
+function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, settings: SpectrumSettings) {
+  const count = Math.max(16, Math.min(settings.barCount, data.length));
+  const barWidth = width / count;
+  const gradient = createGradient(ctx, 0, height, settings.colorScheme);
+
+  ctx.fillStyle = 'rgba(10,14,39,0.16)';
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = gradient;
 
   for (let i = 0; i < count; i += 1) {
-    const value = data[i] ?? 0;
-    const barHeight = (value / 255) * (height * 0.72);
+    const sourceIndex = Math.floor((i / count) * data.length);
+    const value = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
+    const barHeight = value * (height * 0.78);
     const x = i * barWidth;
     const y = height - barHeight;
-    ctx.fillRect(x + 1, y, Math.max(1, barWidth - 3), barHeight);
+    ctx.fillRect(x + 1, y, Math.max(1, barWidth - 2), barHeight);
   }
 }
 
-function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number) {
-  ctx.fillStyle = 'rgba(10,14,39,0.2)';
+function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, settings: SpectrumSettings) {
+  ctx.fillStyle = 'rgba(10,14,39,0.16)';
   ctx.fillRect(0, 0, width, height);
 
-  const gradient = ctx.createLinearGradient(0, 0, width, 0);
-  gradient.addColorStop(0, '#fb923c');
-  gradient.addColorStop(0.5, '#f59e0b');
-  gradient.addColorStop(1, '#22d3ee');
-
-  ctx.strokeStyle = gradient;
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = createGradient(ctx, width, 0, settings.colorScheme);
+  ctx.lineWidth = settings.lineWidth;
   ctx.beginPath();
 
   const sliceWidth = width / data.length;
+  const center = height / 2;
   for (let i = 0; i < data.length; i += 1) {
-    const y = ((data[i] ?? 128) / 255) * height;
+    const normalized = ((data[i] ?? 128) - 128) / 128;
+    const y = center + normalized * center * Math.min(1.3, settings.sensitivity);
     const x = i * sliceWidth;
+
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -58,20 +88,21 @@ function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
   ctx.stroke();
 }
 
-function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number) {
-  ctx.fillStyle = 'rgba(10,14,39,0.2)';
+function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, settings: SpectrumSettings) {
+  ctx.fillStyle = 'rgba(10,14,39,0.16)';
   ctx.fillRect(0, 0, width, height);
 
   const centerX = width / 2;
   const centerY = height / 2;
-  const baseRadius = Math.min(centerX, centerY) * 0.26;
-  const maxLength = Math.min(centerX, centerY) * 0.5;
+  const baseRadius = Math.min(centerX, centerY) * 0.24;
+  const maxLength = Math.min(centerX, centerY) * (0.5 + settings.radialBoost * 0.35);
+  const step = Math.max(1, Math.floor(data.length / Math.max(64, settings.barCount)));
 
   ctx.save();
   ctx.translate(centerX, centerY);
 
-  for (let i = 0; i < data.length; i += 2) {
-    const strength = (data[i] ?? 0) / 255;
+  for (let i = 0; i < data.length; i += step) {
+    const strength = Math.min(1, ((data[i] ?? 0) / 255) * settings.sensitivity);
     const angle = (i / data.length) * Math.PI * 2;
     const length = baseRadius + strength * maxLength;
 
@@ -80,8 +111,9 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
     const x2 = Math.cos(angle) * length;
     const y2 = Math.sin(angle) * length;
 
-    ctx.strokeStyle = `hsla(${30 + strength * 35}, 90%, ${55 + strength * 15}%, 0.92)`;
-    ctx.lineWidth = 2;
+    const hueOffset = settings.colorScheme === 'neon' ? 180 : settings.colorScheme === 'fire' ? 10 : 30;
+    ctx.strokeStyle = `hsla(${hueOffset + strength * 70}, 92%, ${54 + strength * 18}%, 0.94)`;
+    ctx.lineWidth = Math.max(1.5, settings.lineWidth * 0.7);
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
@@ -95,7 +127,7 @@ function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: numb
   if (!duration) return;
   const progress = Math.max(0, Math.min(1, currentTime / duration));
 
-  ctx.fillStyle = 'rgba(15,23,42,0.7)';
+  ctx.fillStyle = 'rgba(15,23,42,0.65)';
   ctx.fillRect(0, height - 8, width, 8);
 
   const gradient = ctx.createLinearGradient(0, 0, width, 0);
@@ -113,6 +145,7 @@ export function VisualizationCanvas({
   currentTime,
   onSeek,
   onExportCanvasReady,
+  settings,
 }: VisualizationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -153,11 +186,11 @@ export function VisualizationCanvas({
         ctx.clearRect(0, 0, width, height);
 
         if (mode === 'bars') {
-          drawBars(ctx, frequencyData, width, height);
+          drawBars(ctx, frequencyData, width, height, settings);
         } else if (mode === 'waveform') {
-          drawWaveform(ctx, timeData, width, height);
+          drawWaveform(ctx, timeData, width, height, settings);
         } else {
-          drawCircular(ctx, frequencyData, width, height);
+          drawCircular(ctx, frequencyData, width, height, settings);
         }
 
         drawProgress(ctx, width, height, duration, currentTime);
@@ -170,7 +203,7 @@ export function VisualizationCanvas({
 
     frame = requestAnimationFrame(renderFrame);
     return () => cancelAnimationFrame(frame);
-  }, [mode, frequencyData, timeData, duration, currentTime]);
+  }, [mode, frequencyData, timeData, duration, currentTime, settings]);
 
   const handleSeekFromCanvas = (clientX: number) => {
     if (!duration || !canvasRef.current) return;

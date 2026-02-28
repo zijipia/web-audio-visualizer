@@ -5,8 +5,21 @@ import { BassPulseBackground } from '@/components/bass-pulse-background';
 import { FileUpload } from '@/components/file-upload';
 import { PlaybackControls } from '@/components/playback-controls';
 import { VideoExport } from '@/components/video-export';
-import { VisualizationCanvas, type VisualizationMode } from '@/components/visualization-canvas';
+import {
+  VisualizationCanvas,
+  type SpectrumSettings,
+  type VisualizationMode,
+} from '@/components/visualization-canvas';
 import { useAudioContext } from '@/hooks/use-audio-context';
+
+const DEFAULT_SETTINGS: SpectrumSettings = {
+  barCount: 96,
+  sensitivity: 1,
+  lineWidth: 3,
+  radialBoost: 0.75,
+  colorScheme: 'sunset',
+};
+
 
 export function AudioVisualizer() {
   const audio = useAudioContext();
@@ -15,6 +28,8 @@ export function AudioVisualizer() {
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
   const [mode, setMode] = useState<VisualizationMode>('bars');
   const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
+
 
   const bassIntensity = useMemo(() => {
     if (!audio.frequencyData.length) return 0;
@@ -24,8 +39,9 @@ export function AudioVisualizer() {
 
     let sum = 0;
     for (let i = 0; i < count; i += 1) sum += audio.frequencyData[i] ?? 0;
-    return Math.min(1, sum / count / 255);
-  }, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime]);
+    return Math.min(1, (sum / count / 255) * settings.sensitivity);
+  }, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime, settings.sensitivity]);
+
 
   const loadAudio = useCallback(
     async (file: File) => {
@@ -68,6 +84,8 @@ export function AudioVisualizer() {
         currentTime={audio.state.currentTime}
         onSeek={audio.seek}
         onExportCanvasReady={setExportCanvas}
+        settings={settings}
+
       />
 
       <FileUpload
@@ -92,6 +110,9 @@ export function AudioVisualizer() {
         volume={audio.state.volume}
         isLoading={audio.state.isLoading}
         mode={mode}
+        settings={settings}
+        onSettingsChange={setSettings}
+
         onModeChange={setMode}
         onPlay={() => {
           audio.play().catch(() => {
