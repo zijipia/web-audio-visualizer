@@ -1,54 +1,62 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BassPulseBackground } from '@/components/bass-pulse-background';
-import { FileUpload } from '@/components/file-upload';
-import { PlaybackControls } from '@/components/playback-controls';
-import { VideoExport } from '@/components/video-export';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BassPulseBackground } from "@/components/bass-pulse-background";
+import { FileUpload } from "@/components/file-upload";
+import { PlaybackControls } from "@/components/playback-controls";
+import { VideoExport } from "@/components/video-export";
 import {
   VisualizationCanvas,
   type SpectrumSettings,
   type VisualizationMode,
-} from '@/components/visualization-canvas';
-import { useAudioContext } from '@/hooks/use-audio-context';
+} from "@/components/visualization-canvas";
+import { useAudioContext } from "@/hooks/use-audio-context";
 
 const DEFAULT_SETTINGS: SpectrumSettings = {
   barCount: 96,
   sensitivity: 1,
   lineWidth: 3,
   radialBoost: 0.75,
-  colorScheme: 'sunset',
+  colorScheme: "sunset",
+  mirror: true,
 };
-
 
 export function AudioVisualizer() {
   const audio = useAudioContext();
 
   const [audioFileName, setAudioFileName] = useState<string | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
-  const [mode, setMode] = useState<VisualizationMode>('bars');
-  const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [mode, setMode] = useState<VisualizationMode>("bars");
+  const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(
+    null,
+  );
   const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
-
 
   const bassIntensity = useMemo(() => {
     if (!audio.frequencyData.length) return 0;
     const maxFrequency = 256;
     const nyquist = (audio.audioContext?.sampleRate ?? 44100) / 2;
-    const count = Math.max(1, Math.floor((maxFrequency / nyquist) * audio.frequencyData.length));
+    const count = Math.max(
+      1,
+      Math.floor((maxFrequency / nyquist) * audio.frequencyData.length),
+    );
 
     let sum = 0;
     for (let i = 0; i < count; i += 1) sum += audio.frequencyData[i] ?? 0;
     return Math.min(1, (sum / count / 255) * settings.sensitivity);
-  }, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime, settings.sensitivity]);
-
+  }, [
+    audio.audioContext?.sampleRate,
+    audio.frequencyData,
+    audio.state.currentTime,
+    settings.sensitivity,
+  ]);
 
   const loadAudio = useCallback(
     async (file: File) => {
       setAudioFileName(file.name);
       await audio.loadAudio(file);
     },
-    [audio]
+    [audio],
   );
 
   const loadBackground = useCallback((file: File) => {
@@ -74,7 +82,10 @@ export function AudioVisualizer() {
 
   return (
     <main className="relative h-screen w-full overflow-hidden text-slate-100">
-      <BassPulseBackground bassIntensity={bassIntensity} backgroundImage={backgroundImage} />
+      <BassPulseBackground
+        bassIntensity={bassIntensity}
+        backgroundImage={backgroundImage}
+      />
 
       <VisualizationCanvas
         frequencyData={audio.frequencyData}
@@ -85,7 +96,6 @@ export function AudioVisualizer() {
         onSeek={audio.seek}
         onExportCanvasReady={setExportCanvas}
         settings={settings}
-
       />
 
       <FileUpload
@@ -112,7 +122,6 @@ export function AudioVisualizer() {
         mode={mode}
         settings={settings}
         onSettingsChange={setSettings}
-
         onModeChange={setMode}
         onPlay={() => {
           audio.play().catch(() => {
@@ -128,7 +137,9 @@ export function AudioVisualizer() {
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-8 py-6 text-center backdrop-blur-xl">
             <h1 className="text-3xl font-semibold">Web Audio Visualizer</h1>
-            <p className="mt-2 text-sm text-slate-300">Upload an MP3 to start real-time visualization.</p>
+            <p className="mt-2 text-sm text-slate-300">
+              Upload an MP3 to start real-time visualization.
+            </p>
           </div>
         </div>
       )}

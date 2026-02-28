@@ -1,9 +1,21 @@
-'use client';
+"use client";
 
-import { BarChart3, Circle, Pause, Play, SlidersHorizontal, Volume2, Waves } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useState } from 'react';
-import type { SpectrumColorScheme, SpectrumSettings, VisualizationMode } from './visualization-canvas';
+import {
+  BarChart3,
+  Circle,
+  Pause,
+  Play,
+  SlidersHorizontal,
+  Volume2,
+  Waves,
+} from "lucide-react";
+import type { ReactNode } from "react";
+import { useState } from "react";
+import type {
+  SpectrumColorScheme,
+  SpectrumSettings,
+  VisualizationMode,
+} from "./visualization-canvas";
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -22,12 +34,12 @@ interface PlaybackControlsProps {
 }
 
 const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
-  { id: 'bars', icon: <BarChart3 size={16} />, label: 'Bars' },
-  { id: 'waveform', icon: <Waves size={16} />, label: 'Waveform' },
-  { id: 'circular', icon: <Circle size={16} />, label: 'Circular' },
+  { id: "bars", icon: <BarChart3 size={16} />, label: "Bars" },
+  { id: "waveform", icon: <Waves size={16} />, label: "Waveform" },
+  { id: "circular", icon: <Circle size={16} />, label: "Circular" },
 ];
 
-const SCHEMES: SpectrumColorScheme[] = ['sunset', 'neon', 'fire'];
+const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire"];
 
 export function PlaybackControls({
   isPlaying,
@@ -47,10 +59,10 @@ export function PlaybackControls({
   const [showSettings, setShowSettings] = useState(false);
 
   const formatTime = (value: number) => {
-    if (!Number.isFinite(value)) return '0:00';
+    if (!Number.isFinite(value)) return "0:00";
     const minutes = Math.floor(value / 60);
     const seconds = Math.floor(value % 60);
-    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
   };
 
   return (
@@ -74,9 +86,13 @@ export function PlaybackControls({
             onClick={isPlaying ? onPause : onPlay}
             disabled={isLoading}
             className="rounded-full bg-orange-500 p-3 text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label={isPlaying ? 'Pause' : 'Play'}
+            aria-label={isPlaying ? "Pause" : "Play"}
           >
-            {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+            {isPlaying ? (
+              <Pause size={20} fill="currentColor" />
+            ) : (
+              <Play size={20} fill="currentColor" />
+            )}
           </button>
 
           <span className="font-mono text-sm text-slate-100">
@@ -90,7 +106,9 @@ export function PlaybackControls({
               key={item.id}
               onClick={() => onModeChange(item.id)}
               className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${
-                mode === item.id ? 'bg-orange-500 text-white' : 'text-slate-200 hover:bg-white/10'
+                mode === item.id
+                  ? "bg-orange-500 text-white"
+                  : "text-slate-200 hover:bg-white/10"
               }`}
             >
               {item.icon}
@@ -101,7 +119,9 @@ export function PlaybackControls({
           <button
             onClick={() => setShowSettings((prev) => !prev)}
             className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${
-              showSettings ? 'bg-cyan-500 text-white' : 'text-slate-200 hover:bg-white/10'
+              showSettings
+                ? "bg-cyan-500 text-white"
+                : "text-slate-200 hover:bg-white/10"
             }`}
           >
             <SlidersHorizontal size={15} /> Tune
@@ -133,7 +153,12 @@ export function PlaybackControls({
               max={180}
               step={2}
               value={settings.barCount}
-              onChange={(event) => onSettingsChange({ ...settings, barCount: Number(event.target.value) })}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  barCount: Number(event.target.value),
+                })
+              }
             />
           </label>
 
@@ -145,7 +170,12 @@ export function PlaybackControls({
               max={2}
               step={0.05}
               value={settings.sensitivity}
-              onChange={(event) => onSettingsChange({ ...settings, sensitivity: Number(event.target.value) })}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  sensitivity: Number(event.target.value),
+                })
+              }
             />
           </label>
 
@@ -157,7 +187,12 @@ export function PlaybackControls({
               max={8}
               step={0.5}
               value={settings.lineWidth}
-              onChange={(event) => onSettingsChange({ ...settings, lineWidth: Number(event.target.value) })}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  lineWidth: Number(event.target.value),
+                })
+              }
             />
           </label>
 
@@ -169,7 +204,26 @@ export function PlaybackControls({
               max={1.5}
               step={0.05}
               value={settings.radialBoost}
-              onChange={(event) => onSettingsChange({ ...settings, radialBoost: Number(event.target.value) })}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  radialBoost: Number(event.target.value),
+                })
+              }
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span>Mirror</span>
+            <input
+              type="checkbox"
+              checked={settings.mirror}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  mirror: event.target.checked,
+                })
+              }
             />
           </label>
 
@@ -178,7 +232,12 @@ export function PlaybackControls({
             <select
               className="w-full rounded-md border border-white/10 bg-slate-900/70 p-1"
               value={settings.colorScheme}
-              onChange={(event) => onSettingsChange({ ...settings, colorScheme: event.target.value as SpectrumColorScheme })}
+              onChange={(event) =>
+                onSettingsChange({
+                  ...settings,
+                  colorScheme: event.target.value as SpectrumColorScheme,
+                })
+              }
             >
               {SCHEMES.map((scheme) => (
                 <option key={scheme} value={scheme}>
