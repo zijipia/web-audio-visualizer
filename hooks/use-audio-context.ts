@@ -48,7 +48,10 @@ export function useAudioContext(): UseAudioContextReturn {
 
   // Initialize Audio Context
   const initializeAudioContext = useCallback(() => {
-    if (audioContextRef.current) return;
+    // Return existing context if already initialized
+    if (audioContextRef.current) {
+      return audioContextRef.current;
+    }
 
     const context = new (window.AudioContext || (window as any).webkitAudioContext)();
     audioContextRef.current = context;
@@ -64,13 +67,6 @@ export function useAudioContext(): UseAudioContextReturn {
     gainNode.gain.value = state.volume;
     gainNodeRef.current = gainNode;
 
-    // Connect nodes
-    if (mediaSourceRef.current) {
-      mediaSourceRef.current.connect(analyser);
-      analyser.connect(gainNode);
-      gainNode.connect(context.destination);
-    }
-
     frequencyDataRef.current = new Uint8Array(analyser.frequencyBinCount);
     timeDataRef.current = new Uint8Array(analyser.frequencyBinCount);
 
@@ -83,71 +79,69 @@ export function useAudioContext(): UseAudioContextReturn {
 
     try {
       const url = URL.createObjectURL(file);
-      setAudioFile(url);
+      // Initialize context and create media source before setting src
+      const context = initializeAudioContext();
+      
+      // Create audio element if not exists
+      if (!audioElementRef.current) {
+        const audio = new Audio();
+        audio.crossOrigin = 'anonymous';
+        audioElementRef.current = audio;
+
+        // Setup event listeners
+        audio.addEventListener('play', () => {
+          if (audioContextRef.current?.state === 'suspended') {
+            audioContextRef.current.resume();
+          }
+          setState((prev) => ({ ...prev, isPlaying: true }));
+        });
+
+        audio.addEventListener('pause', () => {
+          setState((prev) => ({ ...prev, isPlaying: false }));
+        });
+
+        audio.addEventListener('timeupdate', () => {
+          setState((prev) => ({
+            ...prev,
+            currentTime: audio.currentTime,
+          }));
+        });
+
+        audio.addEventListener('loadedmetadata', () => {
+          setState((prev) => ({
+            ...prev,
+            duration: audio.duration,
+          }));
+        });
+      }
+
+      // Set source
+      audioElementRef.current.src = url;
+
+      // Create media source and connect to analyser if not already done
+      if (!mediaSourceRef.current) {
+        const mediaSource = context.createMediaElementAudioSource(audioElementRef.current);
+        mediaSourceRef.current = mediaSource;
+
+        if (analyserRef.current && gainNodeRef.current) {
+          mediaSource.connect(analyserRef.current);
+          analyserRef.current.connect(gainNodeRef.current);
+          gainNodeRef.current.connect(context.destination);
+        }
+      }
     } catch (error) {
       console.error('[v0] Error loading audio:', error);
     } finally {
       setState((prev) => ({ ...prev, isLoading: false }));
     }
-  }, []);
-
-  // Set audio file by URL
-  const setAudioFile = useCallback((url: string) => {
-    if (!audioElementRef.current) {
-      const audio = new Audio();
-      audio.crossOrigin = 'anonymous';
-      audioElementRef.current = audio;
-
-      // Setup audio context on first interaction
-      audio.addEventListener('play', () => {
-        if (audioContextRef.current?.state === 'suspended') {
-          audioContextRef.current.resume();
-        }
-      });
-
-      // Update time
-      audio.addEventListener('timeupdate', () => {
-        setState((prev) => ({
-          ...prev,
-          currentTime: audio.currentTime,
-        }));
-      });
-
-      // Update duration
-      audio.addEventListener('loadedmetadata', () => {
-        setState((prev) => ({
-          ...prev,
-          duration: audio.duration,
-        }));
-      });
-
-      // Update playing state
-      audio.addEventListener('play', () => {
-        setState((prev) => ({ ...prev, isPlaying: true }));
-      });
-
-      audio.addEventListener('pause', () => {
-        setState((prev) => ({ ...prev, isPlaying: false }));
-      });
-    }
-
-    audioElementRef.current.src = url;
-
-    // Initialize audio context immediately and connect to media source
-    if (!mediaSourceRef.current) {
-      const context = initializeAudioContext();
-      const mediaSource = context.createMediaElementAudioSource(
-        audioElementRef.current
-      );
-      mediaSourceRef.current = mediaSource;
-
-      if (analyserRef.current && gainNodeRef.current) {
-        mediaSource.connect(analyserRef.current);
-        analyserRef.current.connect(gainNodeRef.current);
-        gainNodeRef.current.connect(context.destination);
-      }
-    }
   }, [initializeAudioContext]);
+
+  // Set audio file by URL (mainly used internally)
+  const setAudioFile = useCallback((url: string) => {
+    if (audioElementRef.current) {
+      audioElementRef.current.src = url;
+    }
+  }, []);
 
   // Play audio
   const play = useCallback(() => {
