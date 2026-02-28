@@ -4,248 +4,244 @@ import { useEffect, useRef } from 'react';
 
 export type VisualizationMode = 'bars' | 'waveform' | 'circular';
 
+export interface SpectrumOptions {
+  density: number;
+  sensitivity: number;
+  smoothing: number;
+  lineWidth: number;
+  palette: 'sunset' | 'neon' | 'ocean';
+  mirror: boolean;
+}
+
+export const DEFAULT_SPECTRUM_OPTIONS: SpectrumOptions = {
+  density: 110,
+  sensitivity: 1.15,
+  smoothing: 0.72,
+  lineWidth: 3,
+  palette: 'sunset',
+  mirror: false,
+};
+
 interface VisualizationCanvasProps {
   frequencyData: Uint8Array;
   timeData: Uint8Array;
   mode: VisualizationMode;
-  isPlaying: boolean;
   duration: number;
   currentTime: number;
+  options: SpectrumOptions;
   onSeek: (time: number) => void;
-  bassIntensity: number; // 0-1, for bass pulse effect
+  onExportCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
+}
+
+function paletteColors(palette: SpectrumOptions['palette']) {
+  if (palette === 'neon') return ['#22d3ee', '#a78bfa', '#f472b6'];
+  if (palette === 'ocean') return ['#0ea5e9', '#06b6d4', '#2dd4bf'];
+  return ['#fb923c', '#f59e0b', '#f97316'];
+}
+
+function drawBars(ctx: CanvasRenderingContext2D, data: Float32Array, width: number, height: number, options: SpectrumOptions) {
+  const count = Math.max(24, Math.min(options.density, data.length));
+  const barWidth = width / count;
+  const [c1, c2, c3] = paletteColors(options.palette);
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, c1);
+  gradient.addColorStop(0.55, c2);
+  gradient.addColorStop(1, c3);
+
+  ctx.fillStyle = 'rgba(10,14,39,0.22)';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = gradient;
+
+  const startX = options.mirror ? width / 2 : 0;
+
+  for (let i = 0; i < count; i += 1) {
+    const value = data[i] ?? 0;
+    const barHeight = Math.min(height * 0.86, value * options.sensitivity * 0.9 * height);
+    const y = height - barHeight;
+
+    if (options.mirror) {
+      const xR = startX + i * (barWidth / 2);
+      const xL = startX - (i + 1) * (barWidth / 2);
+      ctx.fillRect(xR + 0.5, y, Math.max(1, barWidth / 2 - 1.5), barHeight);
+      ctx.fillRect(xL + 0.5, y, Math.max(1, barWidth / 2 - 1.5), barHeight);
+    } else {
+      const x = i * barWidth;
+      ctx.fillRect(x + 1, y, Math.max(1, barWidth - 2.5), barHeight);
+    }
+  }
+}
+
+function drawWaveform(ctx: CanvasRenderingContext2D, data: Float32Array, width: number, height: number, options: SpectrumOptions) {
+  ctx.fillStyle = 'rgba(10,14,39,0.22)';
+  ctx.fillRect(0, 0, width, height);
+
+  const [c1, c2, c3] = paletteColors(options.palette);
+  const gradient = ctx.createLinearGradient(0, 0, width, 0);
+  gradient.addColorStop(0, c1);
+  gradient.addColorStop(0.5, c2);
+  gradient.addColorStop(1, c3);
+
+  ctx.strokeStyle = gradient;
+  ctx.lineWidth = options.lineWidth;
+  ctx.beginPath();
+
+  const sliceWidth = width / data.length;
+  for (let i = 0; i < data.length; i += 1) {
+    const y = data[i] * height;
+    const x = i * sliceWidth;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+
+  ctx.stroke();
+}
+
+function drawCircular(ctx: CanvasRenderingContext2D, data: Float32Array, width: number, height: number, options: SpectrumOptions) {
+  ctx.fillStyle = 'rgba(10,14,39,0.22)';
+  ctx.fillRect(0, 0, width, height);
+
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const baseRadius = Math.min(centerX, centerY) * 0.23;
+  const maxLength = Math.min(centerX, centerY) * 0.54;
+  const [c1, c2, c3] = paletteColors(options.palette);
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+
+  for (let i = 0; i < data.length; i += 2) {
+    const strength = Math.min(1, data[i] * options.sensitivity);
+    const angle = (i / data.length) * Math.PI * 2;
+    const length = baseRadius + strength * maxLength;
+
+    const x1 = Math.cos(angle) * baseRadius;
+    const y1 = Math.sin(angle) * baseRadius;
+    const x2 = Math.cos(angle) * length;
+    const y2 = Math.sin(angle) * length;
+
+    const color = i % 6 === 0 ? c1 : i % 4 === 0 ? c2 : c3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5 + strength * 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: number, duration: number, currentTime: number) {
+  if (!duration) return;
+  const progress = Math.max(0, Math.min(1, currentTime / duration));
+
+  ctx.fillStyle = 'rgba(15,23,42,0.68)';
+  ctx.fillRect(0, height - 8, width, 8);
+
+  const gradient = ctx.createLinearGradient(0, 0, width, 0);
+  gradient.addColorStop(0, '#f97316');
+  gradient.addColorStop(1, '#06b6d4');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, height - 8, width * progress, 8);
 }
 
 export function VisualizationCanvas({
   frequencyData,
   timeData,
   mode,
-  isPlaying,
   duration,
   currentTime,
+  options,
   onSeek,
-  bassIntensity,
+  onExportCanvasReady,
 }: VisualizationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationFrameRef = useRef<number>();
+  const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const smoothFrequencyRef = useRef<Float32Array>(new Float32Array(frequencyData.length || 1024));
+  const smoothTimeRef = useRef<Float32Array>(new Float32Array(timeData.length || 1024));
 
-  // Initialize off-screen canvas for video export
   useEffect(() => {
-    if (!offscreenCanvasRef.current) {
-      offscreenCanvasRef.current = new OffscreenCanvas(1920, 1080);
-    }
-  }, []);
+    smoothFrequencyRef.current = new Float32Array(frequencyData.length || 1024);
+    smoothTimeRef.current = new Float32Array(timeData.length || 1024);
+  }, [frequencyData.length, timeData.length]);
 
-  // Draw bars visualization
-  const drawBars = (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number) => {
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.2)';
-    ctx.fillRect(0, 0, width, height);
+  useEffect(() => {
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = 1920;
+    exportCanvas.height = 1080;
+    exportCanvasRef.current = exportCanvas;
+    onExportCanvasReady?.(exportCanvas);
 
-    const barWidth = width / frequencyData.length * 2.5;
-    const gradient = (ctx as any).createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#f97316');
-    gradient.addColorStop(0.5, '#fb923c');
-    gradient.addColorStop(1, '#fdba74');
+    return () => onExportCanvasReady?.(null);
+  }, [onExportCanvasReady]);
 
-    for (let i = 0; i < frequencyData.length; i++) {
-      const barHeight = (frequencyData[i] / 255) * height * 0.8;
-      const x = i * barWidth;
-
-      ctx.fillStyle = gradient;
-      ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
-    }
-
-    // Draw progress line
-    const progress = duration > 0 ? (currentTime / duration) * width : 0;
-    ctx.strokeStyle = '#f97316';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(progress, 0);
-    ctx.lineTo(progress, height);
-    ctx.stroke();
-  };
-
-  // Draw waveform visualization
-  const drawWaveform = (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number) => {
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.2)';
-    ctx.fillRect(0, 0, width, height);
-
-    const centerY = height / 2;
-    const gradient = (ctx as any).createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#f97316');
-    gradient.addColorStop(0.5, '#fb923c');
-    gradient.addColorStop(1, '#fdba74');
-
-    ctx.strokeStyle = gradient;
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-
-    const sliceWidth = width / timeData.length;
-    let x = 0;
-
-    for (let i = 0; i < timeData.length; i++) {
-      const v = timeData[i] / 128;
-      const y = v * centerY;
-
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-
-      x += sliceWidth;
-    }
-
-    ctx.stroke();
-
-    // Draw progress line
-    const progress = duration > 0 ? (currentTime / duration) * width : 0;
-    ctx.strokeStyle = '#f97316';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(progress, 0);
-    ctx.lineTo(progress, height);
-    ctx.stroke();
-  };
-
-  // Draw circular spectrum visualization
-  const drawCircular = (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, width: number, height: number) => {
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.2)';
-    ctx.fillRect(0, 0, width, height);
-
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const maxRadius = Math.min(centerX, centerY) * 0.8;
-
-    // Draw background circle
-    ctx.strokeStyle = 'rgba(248, 113, 22, 0.2)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, maxRadius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Draw frequency bars in circular pattern
-    const bars = frequencyData.length;
-    const barWidth = (Math.PI * 2) / bars;
-
-    for (let i = 0; i < bars; i++) {
-      const angle = i * barWidth - Math.PI / 2;
-      const value = frequencyData[i] / 255;
-      const radius = maxRadius * value;
-
-      const x1 = centerX + Math.cos(angle) * maxRadius;
-      const y1 = centerY + Math.sin(angle) * maxRadius;
-      const x2 = centerX + Math.cos(angle) * radius;
-      const y2 = centerY + Math.sin(angle) * radius;
-
-      // Color based on frequency band
-      const hue = (i / bars) * 360;
-      const saturation = 50 + value * 50;
-      ctx.strokeStyle = `hsl(${hue}, ${saturation}%, 50%)`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-    }
-
-    // Draw inner circle
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.5)';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, maxRadius * 0.3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Draw progress indicator
-    const progress = duration > 0 ? (currentTime / duration) * (Math.PI * 2) : 0;
-    const progressRadius = maxRadius + 20;
-    ctx.fillStyle = '#f97316';
-    ctx.beginPath();
-    ctx.arc(
-      centerX + Math.cos(progress - Math.PI / 2) * progressRadius,
-      centerY + Math.sin(progress - Math.PI / 2) * progressRadius,
-      8,
-      0,
-      Math.PI * 2
-    );
-    ctx.fill();
-  };
-
-  // Handle canvas click for seeking
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas || duration === 0) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const width = rect.width;
-    const newTime = (x / width) * duration;
-
-    onSeek(newTime);
-  };
-
-  // Main render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const context = canvas.getContext('2d');
+    const exportContext = exportCanvasRef.current?.getContext('2d');
+    if (!context || !exportContext) return;
 
-    const render = () => {
-      const width = canvas.offsetWidth;
-      const height = canvas.offsetHeight;
+    let frame = 0;
 
-      // Set canvas resolution
-      canvas.width = width;
-      canvas.height = height;
+    const renderFrame = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const displayWidth = Math.floor(canvas.clientWidth);
+      const displayHeight = Math.floor(canvas.clientHeight);
 
-      // Draw based on mode
-      if (mode === 'bars') {
-        drawBars(ctx, width, height);
-      } else if (mode === 'waveform') {
-        drawWaveform(ctx, width, height);
-      } else if (mode === 'circular') {
-        drawCircular(ctx, width, height);
+      if (canvas.width !== Math.floor(displayWidth * dpr) || canvas.height !== Math.floor(displayHeight * dpr)) {
+        canvas.width = Math.floor(displayWidth * dpr);
+        canvas.height = Math.floor(displayHeight * dpr);
       }
 
-      // Also render to off-screen canvas for video export
-      if (offscreenCanvasRef.current) {
-        const offscreenCtx = offscreenCanvasRef.current.getContext('2d');
-        if (offscreenCtx) {
-          const offscreenWidth = 1920;
-          const offscreenHeight = 1080;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-          if (mode === 'bars') {
-            drawBars(offscreenCtx, offscreenWidth, offscreenHeight);
-          } else if (mode === 'waveform') {
-            drawWaveform(offscreenCtx, offscreenWidth, offscreenHeight);
-          } else if (mode === 'circular') {
-            drawCircular(offscreenCtx, offscreenWidth, offscreenHeight);
-          }
+      const smoothFactor = Math.max(0.05, Math.min(0.98, options.smoothing));
+      for (let i = 0; i < frequencyData.length; i += 1) {
+        const normalized = (frequencyData[i] ?? 0) / 255;
+        smoothFrequencyRef.current[i] = smoothFrequencyRef.current[i] * smoothFactor + normalized * (1 - smoothFactor);
+      }
+      for (let i = 0; i < timeData.length; i += 1) {
+        const normalized = (timeData[i] ?? 128) / 255;
+        smoothTimeRef.current[i] = smoothTimeRef.current[i] * smoothFactor + normalized * (1 - smoothFactor);
+      }
+
+      const draw = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+        ctx.clearRect(0, 0, width, height);
+
+        if (mode === 'bars') {
+          drawBars(ctx, smoothFrequencyRef.current, width, height, options);
+        } else if (mode === 'waveform') {
+          drawWaveform(ctx, smoothTimeRef.current, width, height, options);
+        } else {
+          drawCircular(ctx, smoothFrequencyRef.current, width, height, options);
         }
-      }
 
-      animationFrameRef.current = requestAnimationFrame(render);
+        drawProgress(ctx, width, height, duration, currentTime);
+      };
+
+      draw(context, displayWidth, displayHeight);
+      draw(exportContext, 1920, 1080);
+      frame = requestAnimationFrame(renderFrame);
     };
 
-    animationFrameRef.current = requestAnimationFrame(render);
+    frame = requestAnimationFrame(renderFrame);
+    return () => cancelAnimationFrame(frame);
+  }, [mode, frequencyData, timeData, duration, currentTime, options]);
 
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [mode, frequencyData, timeData, currentTime, duration, bassIntensity]);
+  const handleSeekFromCanvas = (clientX: number) => {
+    if (!duration || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onSeek(ratio * duration);
+  };
 
   return (
     <canvas
       ref={canvasRef}
-      onClick={handleCanvasClick}
-      className="w-full h-full cursor-crosshair bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950"
+      className="h-full w-full cursor-pointer"
+      onClick={(event) => handleSeekFromCanvas(event.clientX)}
     />
   );
 }
-
-export { VisualizationCanvas as default };
