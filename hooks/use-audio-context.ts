@@ -133,29 +133,36 @@ export function useAudioContext(): UseAudioContextReturn {
 
     audioElementRef.current.src = url;
 
-    // Connect to audio context if not already connected
-    if (audioContextRef.current && !mediaSourceRef.current) {
+    // Initialize audio context immediately and connect to media source
+    if (!mediaSourceRef.current) {
       const context = initializeAudioContext();
       const mediaSource = context.createMediaElementAudioSource(
         audioElementRef.current
       );
       mediaSourceRef.current = mediaSource;
 
-      mediaSource.connect(analyserRef.current!);
-      analyserRef.current!.connect(gainNodeRef.current!);
-      gainNodeRef.current!.connect(context.destination);
+      if (analyserRef.current && gainNodeRef.current) {
+        mediaSource.connect(analyserRef.current);
+        analyserRef.current.connect(gainNodeRef.current);
+        gainNodeRef.current.connect(context.destination);
+      }
     }
   }, [initializeAudioContext]);
 
   // Play audio
   const play = useCallback(() => {
-    if (audioElementRef.current) {
-      initializeAudioContext();
+    if (audioElementRef.current && audioElementRef.current.src) {
+      // Resume suspended audio context if needed
+      if (audioContextRef.current?.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
       audioElementRef.current.play().catch((err) => {
         console.error('[v0] Playback failed:', err);
       });
+    } else {
+      console.warn('[v0] No audio loaded. Please upload an audio file first.');
     }
-  }, [initializeAudioContext]);
+  }, []);
 
   // Pause audio
   const pause = useCallback(() => {
