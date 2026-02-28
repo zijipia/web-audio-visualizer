@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 
+
 interface BassPulseBackgroundProps {
   bassIntensity: number;
   backgroundImage: string | null;
@@ -36,6 +37,7 @@ export function BassPulseBackground({ bassIntensity, backgroundImage }: BassPuls
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
   }, [bassIntensity]);
+
 
   return (
     <div className="absolute inset-0 -z-10 overflow-hidden">

@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
   colorScheme: 'sunset',
 };
 
+
 export function AudioVisualizer() {
   const audio = useAudioContext();
 
@@ -28,6 +29,7 @@ export function AudioVisualizer() {
   const [mode, setMode] = useState<VisualizationMode>('bars');
   const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
   const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
+
 
   const bassIntensity = useMemo(() => {
     if (!audio.frequencyData.length) return 0;
@@ -39,6 +41,7 @@ export function AudioVisualizer() {
     for (let i = 0; i < count; i += 1) sum += audio.frequencyData[i] ?? 0;
     return Math.min(1, (sum / count / 255) * settings.sensitivity);
   }, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime, settings.sensitivity]);
+
 
   const loadAudio = useCallback(
     async (file: File) => {
@@ -82,6 +85,7 @@ export function AudioVisualizer() {
         onSeek={audio.seek}
         onExportCanvasReady={setExportCanvas}
         settings={settings}
+
       />
 
       <FileUpload
@@ -108,6 +112,7 @@ export function AudioVisualizer() {
         mode={mode}
         settings={settings}
         onSettingsChange={setSettings}
+
         onModeChange={setMode}
         onPlay={() => {
           audio.play().catch(() => {
