@@ -1,7 +1,7 @@
 'use client';
 
-import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { BarChart3, Circle, Pause, Play, Volume2, Waves } from 'lucide-react';
+import type { VisualizationMode } from './visualization-canvas';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -9,11 +9,19 @@ interface PlaybackControlsProps {
   duration: number;
   volume: number;
   isLoading: boolean;
+  mode: VisualizationMode;
   onPlay: () => void;
   onPause: () => void;
   onSeek: (time: number) => void;
   onVolumeChange: (volume: number) => void;
+  onModeChange: (mode: VisualizationMode) => void;
 }
+
+const modeOptions: { value: VisualizationMode; icon: React.ReactNode; label: string }[] = [
+  { value: 'bars', icon: <BarChart3 size={16} />, label: 'Bars' },
+  { value: 'waveform', icon: <Waves size={16} />, label: 'Waveform' },
+  { value: 'circular', icon: <Circle size={16} />, label: 'Circular' },
+];
 
 export function PlaybackControls({
   isPlaying,
@@ -21,154 +29,81 @@ export function PlaybackControls({
   duration,
   volume,
   isLoading,
+  mode,
   onPlay,
   onPause,
   onSeek,
   onVolumeChange,
+  onModeChange,
 }: PlaybackControlsProps) {
-  const progressRef = useRef<HTMLDivElement>(null);
-  const [isSeekingProgress, setIsSeekingProgress] = useState(false);
-  const [isSeekingVolume, setIsSeekingVolume] = useState(false);
-
-  const formatTime = (time: number): string => {
-    if (!isFinite(time)) return '0:00';
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  const handleProgressMouseDown = useCallback(() => {
-    setIsSeekingProgress(true);
-  }, []);
-
-  const handleProgressMouseUp = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!progressRef.current) return;
-      const rect = progressRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const newTime = (x / rect.width) * duration;
-      onSeek(newTime);
-      setIsSeekingProgress(false);
-    },
-    [duration, onSeek]
-  );
-
-  const handleProgressMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isSeekingProgress || !progressRef.current) return;
-      const rect = progressRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const newTime = (x / rect.width) * duration;
-      onSeek(newTime);
-    },
-    [isSeekingProgress, duration, onSeek]
-  );
-
-  const handleVolumeChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newVolume = parseFloat(e.target.value);
-      onVolumeChange(newVolume);
-    },
-    [onVolumeChange]
-  );
-
-  useEffect(() => {
-    if (!isSeekingProgress) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!progressRef.current) return;
-      const rect = progressRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const newTime = (x / rect.width) * duration;
-      onSeek(newTime);
-    };
-
-    const handleMouseUp = () => {
-      setIsSeekingProgress(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isSeekingProgress, duration, onSeek]);
-
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950 to-slate-950/90 backdrop-blur-xl border-t border-slate-800/50 px-6 py-4 space-y-4">
-      {/* Progress Bar */}
-      <div
-        ref={progressRef}
-        onMouseDown={handleProgressMouseDown}
-        onMouseMove={handleProgressMove}
-        onMouseUp={handleProgressMouseUp}
-        className="w-full h-1 bg-slate-800 rounded-full cursor-pointer group hover:h-2 transition-all duration-200"
-      >
-        <div
-          className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-75"
-          style={{ width: `${progressPercent}%` }}
+    <div className="fixed inset-x-3 bottom-3 z-30 rounded-xl border border-white/15 bg-white/5 p-4 backdrop-blur-md md:inset-x-8">
+      <div className="mb-3">
+        <input
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.01}
+          value={Math.min(currentTime, duration || 0)}
+          onChange={(e) => onSeek(Number(e.target.value))}
+          className="w-full"
+          aria-label="Seek audio"
         />
-        {/* Seek thumb */}
-        <div
-          className="relative -top-1.5 -right-0.5 w-4 h-4 bg-orange-400 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
-          style={{ left: `calc(${progressPercent}% - 8px)` }}
-        />
+        <div className="mt-1 flex justify-between text-xs text-slate-300">
+          <span>{formatTime(currentTime)}</span>
+          <span>{progress.toFixed(0)}%</span>
+          <span>{formatTime(duration)}</span>
+        </div>
       </div>
 
-      {/* Controls Row */}
-      <div className="flex items-center justify-between">
-        {/* Left Side - Play/Pause */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={isPlaying ? onPause : onPlay}
-            disabled={isLoading}
-            className="p-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-110 active:scale-95"
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isLoading ? (
-              <div className="animate-spin">
-                <Play size={24} />
-              </div>
-            ) : isPlaying ? (
-              <Pause size={24} fill="currentColor" />
-            ) : (
-              <Play size={24} fill="currentColor" />
-            )}
-          </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          onClick={isPlaying ? onPause : onPlay}
+          disabled={isLoading}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white transition hover:bg-orange-400 disabled:opacity-60"
+          aria-label={isPlaying ? 'Pause' : 'Play'}
+        >
+          {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+        </button>
 
-          {/* Time Display */}
-          <div className="flex items-center gap-2 text-sm font-mono text-slate-300">
-            <span>{formatTime(currentTime)}</span>
-            <span className="text-slate-600">/</span>
-            <span>{formatTime(duration)}</span>
-          </div>
+        <div className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/20 p-1">
+          {modeOptions.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => onModeChange(option.value)}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs ${
+                mode === option.value ? 'bg-cyan-500 text-slate-950' : 'text-slate-200 hover:bg-white/10'
+              }`}
+            >
+              {option.icon}
+              <span className="hidden sm:inline">{option.label}</span>
+            </button>
+          ))}
         </div>
 
-        {/* Right Side - Volume */}
-        <div className="flex items-center gap-3">
-          {volume === 0 ? (
-            <VolumeX size={20} className="text-slate-400" />
-          ) : (
-            <Volume2 size={20} className="text-slate-400" />
-          )}
+        <div className="flex items-center gap-2">
+          <Volume2 size={16} className="text-slate-200" />
           <input
             type="range"
-            min="0"
-            max="1"
-            step="0.01"
+            min={0}
+            max={1}
+            step={0.01}
             value={volume}
-            onChange={handleVolumeChange}
-            className="w-20 h-1 bg-slate-700 rounded-full appearance-none cursor-pointer accent-orange-500"
+            onChange={(e) => onVolumeChange(Number(e.target.value))}
+            className="w-24"
+            aria-label="Volume"
           />
-          <span className="w-10 text-right text-xs text-slate-500 font-mono">
-            {Math.round(volume * 100)}%
-          </span>
         </div>
       </div>
     </div>
   );
+}
+
+function formatTime(time: number) {
+  if (!Number.isFinite(time) || time < 0) return '0:00';
+  const m = Math.floor(time / 60);
+  const s = Math.floor(time % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
 }

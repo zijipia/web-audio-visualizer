@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface AudioState {
   isPlaying: boolean;
@@ -17,13 +17,11 @@ export interface UseAudioContextReturn {
   frequencyData: Uint8Array;
   timeData: Uint8Array;
   audioElement: HTMLAudioElement | null;
-  mediaSource: MediaElementAudioSourceNode | null;
   loadAudio: (file: File) => Promise<void>;
-  play: () => void;
+  play: () => Promise<void>;
   pause: () => void;
   seek: (time: number) => void;
   setVolume: (vol: number) => void;
-  setAudioFile: (url: string) => void;
   getAudioTrack: () => MediaStreamTrack | null;
   cleanup: () => void;
 }
@@ -34,6 +32,8 @@ export function useAudioContext(): UseAudioContextReturn {
   const mediaSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
+  const mediaDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
 
   const [state, setState] = useState<AudioState>({
     isPlaying: false,
@@ -43,224 +43,167 @@ export function useAudioContext(): UseAudioContextReturn {
     isLoading: false,
   });
 
-  const frequencyDataRef = useRef<Uint8Array>(new Uint8Array(256));
-  const timeDataRef = useRef<Uint8Array>(new Uint8Array(256));
+  const frequencyDataRef = useRef<Uint8Array>(new Uint8Array(1024));
+  const timeDataRef = useRef<Uint8Array>(new Uint8Array(1024));
 
-  // Initialize Audio Context
-  const initializeAudioContext = useCallback(() => {
-    // Return existing context if already initialized
-    if (audioContextRef.current) {
-      return audioContextRef.current;
-    }
+  const initialize = useCallback(() => {
+    if (audioContextRef.current) return;
 
-    const context = new (window.AudioContext || (window as any).webkitAudioContext)();
-    audioContextRef.current = context;
-
-    // Create analyser node
+    const context = new window.AudioContext();
     const analyser = context.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.85;
-    analyserRef.current = analyser;
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
 
-    // Create gain node for volume control
     const gainNode = context.createGain();
     gainNode.gain.value = state.volume;
-    gainNodeRef.current = gainNode;
 
+    const mediaDestination = context.createMediaStreamDestination();
+
+    analyser.connect(gainNode);
+    gainNode.connect(context.destination);
+    gainNode.connect(mediaDestination);
+
+    audioContextRef.current = context;
+    analyserRef.current = analyser;
+    gainNodeRef.current = gainNode;
+    mediaDestinationRef.current = mediaDestination;
     frequencyDataRef.current = new Uint8Array(analyser.frequencyBinCount);
     timeDataRef.current = new Uint8Array(analyser.frequencyBinCount);
-
-    return context;
   }, [state.volume]);
 
-  // Load audio file
+  const ensureAudioElement = useCallback(() => {
+    if (audioElementRef.current) return audioElementRef.current;
+
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.crossOrigin = 'anonymous';
+
+    audio.addEventListener('play', () => {
+      setState((prev) => ({ ...prev, isPlaying: true }));
+    });
+
+    audio.addEventListener('pause', () => {
+      setState((prev) => ({ ...prev, isPlaying: false }));
+    });
+
+    audio.addEventListener('timeupdate', () => {
+      setState((prev) => ({ ...prev, currentTime: audio.currentTime }));
+    });
+
+    audio.addEventListener('loadedmetadata', () => {
+      setState((prev) => ({ ...prev, duration: Number.isFinite(audio.duration) ? audio.duration : 0 }));
+    });
+
+    audio.addEventListener('ended', () => {
+      setState((prev) => ({ ...prev, isPlaying: false }));
+    });
+
+    audioElementRef.current = audio;
+    return audio;
+  }, []);
+
   const loadAudio = useCallback(async (file: File) => {
-    setState((prev) => ({ ...prev, isLoading: true }));
+    initialize();
+    setState((prev) => ({ ...prev, isLoading: true, currentTime: 0, duration: 0 }));
 
-    try {
-      const url = URL.createObjectURL(file);
-      // Initialize context and create media source before setting src
-      const context = initializeAudioContext();
-      
-      // Create audio element if not exists
-      if (!audioElementRef.current) {
-        const audio = new Audio();
-        audio.crossOrigin = 'anonymous';
-        audioElementRef.current = audio;
+    const audio = ensureAudioElement();
 
-        // Setup event listeners
-        audio.addEventListener('play', () => {
-          if (audioContextRef.current?.state === 'suspended') {
-            audioContextRef.current.resume();
-          }
-          setState((prev) => ({ ...prev, isPlaying: true }));
-        });
-
-        audio.addEventListener('pause', () => {
-          setState((prev) => ({ ...prev, isPlaying: false }));
-        });
-
-        audio.addEventListener('timeupdate', () => {
-          setState((prev) => ({
-            ...prev,
-            currentTime: audio.currentTime,
-          }));
-        });
-
-        audio.addEventListener('loadedmetadata', () => {
-          setState((prev) => ({
-            ...prev,
-            duration: audio.duration,
-          }));
-        });
-      }
-
-      // Set source
-      audioElementRef.current.src = url;
-
-      // Create media source and connect to analyser if not already done
-      if (!mediaSourceRef.current) {
-        const mediaSource = context.createMediaElementAudioSource(audioElementRef.current);
-        mediaSourceRef.current = mediaSource;
-
-        if (analyserRef.current && gainNodeRef.current) {
-          mediaSource.connect(analyserRef.current);
-          analyserRef.current.connect(gainNodeRef.current);
-          gainNodeRef.current.connect(context.destination);
-        }
-      }
-    } catch (error) {
-      console.error('[v0] Error loading audio:', error);
-    } finally {
-      setState((prev) => ({ ...prev, isLoading: false }));
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
     }
-  }, [initializeAudioContext]);
 
-  // Set audio file by URL (mainly used internally)
-  const setAudioFile = useCallback((url: string) => {
-    if (audioElementRef.current) {
-      audioElementRef.current.src = url;
+    const url = URL.createObjectURL(file);
+    audioUrlRef.current = url;
+    audio.src = url;
+
+    if (!mediaSourceRef.current && audioContextRef.current && analyserRef.current) {
+      const source = audioContextRef.current.createMediaElementSource(audio);
+      source.connect(analyserRef.current);
+      mediaSourceRef.current = source;
     }
+
+    audio.load();
+    setState((prev) => ({ ...prev, isLoading: false }));
+  }, [ensureAudioElement, initialize]);
+
+  const play = useCallback(async () => {
+    const audio = audioElementRef.current;
+    const context = audioContextRef.current;
+    if (!audio || !audio.src || !context) return;
+
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    await audio.play();
   }, []);
 
-  // Play audio
-  const play = useCallback(() => {
-    if (audioElementRef.current && audioElementRef.current.src) {
-      // Resume suspended audio context if needed
-      if (audioContextRef.current?.state === 'suspended') {
-        audioContextRef.current.resume();
-      }
-      audioElementRef.current.play().catch((err) => {
-        console.error('[v0] Playback failed:', err);
-      });
-    } else {
-      console.warn('[v0] No audio loaded. Please upload an audio file first.');
-    }
-  }, []);
-
-  // Pause audio
   const pause = useCallback(() => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-    }
+    audioElementRef.current?.pause();
   }, []);
 
-  // Seek to time
-  const seek = useCallback((time: number) => {
-    if (audioElementRef.current) {
-      audioElementRef.current.currentTime = Math.max(0, Math.min(time, state.duration));
-    }
-  }, [state.duration]);
+  const seek = useCallback(
+    (time: number) => {
+      const audio = audioElementRef.current;
+      if (!audio) return;
+      audio.currentTime = Math.max(0, Math.min(time, state.duration || 0));
+    },
+    [state.duration]
+  );
 
-  // Set volume
   const setVolume = useCallback((vol: number) => {
-    const volume = Math.max(0, Math.min(1, vol));
-    setState((prev) => ({ ...prev, volume }));
+    const safeVolume = Math.max(0, Math.min(1, vol));
+    setState((prev) => ({ ...prev, volume: safeVolume }));
 
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = volume;
-    }
-    if (audioElementRef.current) {
-      audioElementRef.current.volume = volume;
-    }
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = safeVolume;
+    if (audioElementRef.current) audioElementRef.current.volume = safeVolume;
   }, []);
 
-  // Get frequency and time domain data
-  const getFrequencyData = useCallback(() => {
-    if (analyserRef.current) {
-      analyserRef.current.getByteFrequencyData(frequencyDataRef.current);
-      analyserRef.current.getByteTimeDomainData(timeDataRef.current);
-    }
-  }, []);
-
-  // Get audio track for video recording
   const getAudioTrack = useCallback(() => {
-    if (!audioContextRef.current) return null;
-
-    try {
-      const dest = audioContextRef.current.createMediaStreamDestination();
-      if (mediaSourceRef.current && gainNodeRef.current) {
-        gainNodeRef.current.disconnect();
-        gainNodeRef.current.connect(dest);
-        gainNodeRef.current.connect(audioContextRef.current.destination);
-      }
-      return dest.stream.getAudioTracks()[0] || null;
-    } catch (error) {
-      console.error('[v0] Error getting audio track:', error);
-      return null;
-    }
+    const track = mediaDestinationRef.current?.stream.getAudioTracks()[0] ?? null;
+    return track;
   }, []);
 
-  // Cleanup
   const cleanup = useCallback(() => {
-    // Stop audio element
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current.currentTime = 0;
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
     }
 
-    // Revoke blob URLs
-    if (audioElementRef.current?.src) {
-      try {
-        URL.revokeObjectURL(audioElementRef.current.src);
-      } catch (e) {
-        // Ignore errors when revoking URLs
-      }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
     }
 
-    // Close audio context
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
-      audioContextRef.current = null;
     }
 
+    audioContextRef.current = null;
+    mediaSourceRef.current = null;
     analyserRef.current = null;
     gainNodeRef.current = null;
-    mediaSourceRef.current = null;
+    mediaDestinationRef.current = null;
+    audioElementRef.current = null;
   }, []);
 
-  // Update frequency data on animation frame
   useEffect(() => {
-    let animationFrameId: number;
-
-    const updateData = () => {
-      getFrequencyData();
-      animationFrameId = requestAnimationFrame(updateData);
+    let raf = 0;
+    const tick = () => {
+      if (analyserRef.current) {
+        analyserRef.current.getByteFrequencyData(frequencyDataRef.current);
+        analyserRef.current.getByteTimeDomainData(timeDataRef.current);
+      }
+      raf = requestAnimationFrame(tick);
     };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
-    animationFrameId = requestAnimationFrame(updateData);
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [getFrequencyData]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      cleanup();
-    };
-  }, [cleanup]);
+  useEffect(() => cleanup, [cleanup]);
 
   return {
     state,
@@ -269,13 +212,11 @@ export function useAudioContext(): UseAudioContextReturn {
     frequencyData: frequencyDataRef.current,
     timeData: timeDataRef.current,
     audioElement: audioElementRef.current,
-    mediaSource: mediaSourceRef.current,
     loadAudio,
     play,
     pause,
     seek,
     setVolume,
-    setAudioFile,
     getAudioTrack,
     cleanup,
   };
