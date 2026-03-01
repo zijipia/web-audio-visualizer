@@ -57,6 +57,7 @@ interface ExtensionContext {
 	height: number;
 	settings: SpectrumSettings;
 	frequencyData: Uint8Array;
+	visualData: Float32Array;
 	timeData: Uint8Array;
 	sampleRate: number;
 	bassIntensity: number;
@@ -143,6 +144,72 @@ function compileExtension(code: string): ExtensionFunction | null {
 	}
 }
 
+function getSmoothedLogData(data: Uint8Array, count: number, startIndex: number, endIndex: number, sensitivity: number): Float32Array {
+	const result = new Float32Array(count);
+
+	for (let i = 0; i < count; i++) {
+		// Ánh xạ logarit
+		const t = i / Math.max(1, count - 1);
+		const logIndex = startIndex * Math.pow(endIndex / Math.max(1, startIndex), t);
+
+		// Nội suy tuyến tính (Lerp) để xóa bỏ hiện tượng "vuông"
+		const low = Math.floor(logIndex);
+		const high = Math.min(data.length - 1, Math.ceil(logIndex));
+		const fraction = logIndex - low;
+
+		const rawValue = (data[low] ?? 0) * (1 - fraction) + (data[high] ?? 0) * fraction;
+
+		// Áp dụng độ nhạy và làm nhọn đỉnh sóng (Power Scaling)
+		let value = Math.min(1, (rawValue / 255) * sensitivity);
+		result[i] = Math.pow(value, 1.1);
+	}
+	return result;
+}
+
+function getNormalizedData(data: Uint8Array, count: number, sampleRate: number, settings: SpectrumSettings): Float32Array {
+	const visualData = new Float32Array(count);
+
+	const minFreq = settings.startFrequency || 20;
+	const maxFreq = settings.endFrequency || 15000;
+
+	const fftSize = data.length * 2;
+	const startIndex = Math.floor((minFreq * fftSize) / sampleRate);
+	const endIndex = Math.floor((maxFreq * fftSize) / sampleRate);
+	const range = endIndex - startIndex;
+
+	if (range <= 0) return visualData;
+
+	// Pass 1: log-spaced interpolation với multi-sample averaging để đỉnh tròn
+	const raw = new Float32Array(count);
+	for (let i = 0; i < count; i++) {
+		const t = i / Math.max(1, count - 1);
+		const logIndex = startIndex * Math.pow(endIndex / Math.max(1, startIndex), t);
+
+		// Lấy trung bình 3 điểm xung quanh để tránh spike đơn lẻ
+		let sum = 0;
+		for (let k = -1; k <= 1; k++) {
+			const idx = Math.max(0, Math.min(data.length - 1, Math.round(logIndex) + k));
+			sum += data[idx] ?? 0;
+		}
+		raw[i] = sum / 3;
+	}
+
+	// Pass 2: Gaussian smooth nhẹ để đỉnh tròn tự nhiên
+	for (let i = 0; i < count; i++) {
+		const prev2 = raw[Math.max(0, i - 2)] ?? 0;
+		const prev1 = raw[Math.max(0, i - 1)] ?? 0;
+		const curr = raw[i] ?? 0;
+		const next1 = raw[Math.min(count - 1, i + 1)] ?? 0;
+		const next2 = raw[Math.min(count - 1, i + 2)] ?? 0;
+		const smoothed = prev2 * 0.06 + prev1 * 0.24 + curr * 0.4 + next1 * 0.24 + next2 * 0.06;
+
+		// Normalize, sensitivity, power scale — clamp cuối cùng để không mất bass
+		const value = (smoothed / 255) * settings.sensitivity;
+		visualData[i] = Math.min(1, Math.pow(value, 1.15));
+	}
+
+	return visualData;
+}
 interface Particle {
 	x: number;
 	y: number;
@@ -168,7 +235,7 @@ interface VisualizationCanvasProps {
 	overlayImage: string | null;
 }
 
-function resolveFrequencyRange(data: Uint8Array, sampleRate: number, settings: SpectrumSettings) {
+function resolveFrequencyRange(data: Float32Array | Uint8Array, sampleRate: number, settings: SpectrumSettings) {
 	const nyquist = sampleRate / 2;
 	const boundedStart = Math.max(0, Math.min(settings.startFrequency, nyquist));
 	const boundedEnd = Math.max(boundedStart + 1, Math.min(settings.endFrequency, nyquist));
@@ -205,7 +272,7 @@ function createGradient(ctx: CanvasRenderingContext2D, width: number, height: nu
 	return gradient;
 }
 
-function resolveBandEnergy(data: Uint8Array, sampleRate: number, minHz: number, maxHz: number, sensitivity = 1) {
+function resolveBandEnergy(data: Float32Array, sampleRate: number, minHz: number, maxHz: number, sensitivity = 1) {
 	if (!data.length) return 0;
 	const nyquist = sampleRate / 2;
 	const safeMin = Math.max(0, Math.min(minHz, nyquist));
@@ -216,7 +283,8 @@ function resolveBandEnergy(data: Uint8Array, sampleRate: number, minHz: number, 
 	let sum = 0;
 	for (let i = start; i < end; i += 1) sum += data[i] ?? 0;
 	const average = sum / Math.max(1, end - start);
-	return Math.max(0, Math.min(1, (average / 255) * sensitivity));
+	// visualData is already normalized 0-1 (Float32Array), no need to divide by 255
+	return Math.max(0, Math.min(1, average * sensitivity));
 }
 
 function drawBackground(
@@ -308,69 +376,24 @@ function drawBackground(
 	ctx.restore();
 }
 
-function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings, displayState: Float32Array, deltaMs: number) {
-	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
-	const usableLength = Math.max(1, endIndex - startIndex);
-
-	const count = Math.min(settings.frequencyBands, data.length);
-
+function drawBars(ctx: CanvasRenderingContext2D, visualData: Float32Array, width: number, height: number, settings: SpectrumSettings, displayState: Float32Array, deltaMs: number) {
+	const count = visualData.length;
 	const barWidth = width / count;
-	const gradient = createGradient(ctx, 0, height, settings.colorScheme);
-	const maxDrawableHeight = height * (settings.maxHeight / 1000);
-	const decayPerFrame = (settings.fallSpeed * deltaMs) / 16.67;
+	const maxH = height * (settings.maxHeight / 1000);
+	const decay = (settings.fallSpeed * deltaMs) / 16.67;
 
-	ctx.fillStyle = `rgba(10,14,39,${0.12 + (1 - settings.softness) * 0.24})`;
-	ctx.fillRect(0, 0, width, height);
-	ctx.fillStyle = gradient;
-	ctx.shadowColor = settings.glow ? "rgba(255,255,255,0.7)" : "transparent";
-	ctx.shadowBlur = settings.glow;
+	ctx.fillStyle = createGradient(ctx, 0, height, settings.colorScheme);
 
-	const startX = settings.mirror ? width / 2 : 0;
-	const halfWidth = Math.max(1, barWidth / (settings.mirror ? 2 : 1) - 1.5);
+	for (let i = 0; i < count; i++) {
+		// Cập nhật trạng thái rơi mượt mà
+		const target = visualData[i] * maxH;
+		const current = Math.max(target, (displayState[i] || 0) - decay);
+		displayState[i] = current;
 
-	for (let i = 0; i < count; i += 1) {
-		const sourceIndex = startIndex + Math.floor((i / count) * Math.max(1, usableLength - 1));
-
-		const value = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
-
-		const targetHeight = value * maxDrawableHeight;
-		const easedHeight = Math.max(targetHeight, (displayState[i] ?? 0) - decayPerFrame);
-		displayState[i] = easedHeight;
-		const barHeight = easedHeight;
-		const y = height - barHeight;
-
-		const drawSegmentedBar = (x: number) => {
-			if (!settings.segmented) {
-				ctx.fillRect(x, y, halfWidth - settings.thickness, barHeight);
-				return;
-			}
-
-			const segmentHeight = Math.max(4, settings.thickness * 2.2);
-			const segmentGap = Math.max(1, settings.thickness * 0.5);
-			const segments = Math.floor(barHeight / (segmentHeight + segmentGap));
-
-			for (let segmentIndex = 0; segmentIndex <= segments; segmentIndex += 1) {
-				const segmentY = height - (segmentIndex + 1) * segmentHeight - segmentIndex * segmentGap;
-				const decay = 1 - (segmentIndex / Math.max(1, segments)) * settings.softness;
-				const alpha = Math.max(0.2, decay);
-				ctx.globalAlpha = alpha;
-
-				ctx.fillRect(x, segmentY, halfWidth - settings.thickness, segmentHeight);
-			}
-			ctx.globalAlpha = 1;
-		};
-
-		if (settings.mirror) {
-			const xR = startX + i * (barWidth / 2);
-			const xL = startX - (i + 1) * (barWidth / 2);
-			drawSegmentedBar(xR + 0.5);
-			drawSegmentedBar(xL + 0.5);
-		} else {
-			const x = i * barWidth;
-			drawSegmentedBar(x + 1);
-		}
+		const x = i * barWidth;
+		const barH = Math.max(2, current);
+		ctx.fillRect(x, height - barH, barWidth - settings.thickness, barH);
 	}
-	ctx.shadowBlur = 0;
 }
 
 function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, settings: SpectrumSettings) {
@@ -398,19 +421,20 @@ function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	ctx.shadowBlur = 0;
 }
 
-function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
-	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
-	const rangeLength = Math.max(1, endIndex - startIndex);
-	const bars = Math.max(64, settings.frequencyBands * 2);
+function drawCircular(ctx: CanvasRenderingContext2D, data: Float32Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	// visualData is already log-mapped & normalized — use directly
+	const dataLen = data.length;
+	const bars = Math.max(64, Math.min(240, settings.frequencyBands * 2));
 
-	ctx.fillStyle = `rgba(10,14,39,${0.1 + (1 - settings.softness) * 0.22})`;
+	ctx.fillStyle = `rgba(10,14,39,${0.12 + (1 - settings.softness) * 0.2})`;
 	ctx.fillRect(0, 0, width, height);
 
 	const cx = width / 2;
 	const cy = height / 2;
+	const minDim = Math.min(cx, cy);
 
-	const baseRadius = Math.min(cx, cy) * 0.24;
-	const maxAmp = Math.min(cx, cy) * (0.32 + settings.maxHeight / 1200);
+	const baseRadius = minDim * 0.38;
+	const maxAmp = minDim * Math.min(0.45, 0.15 + settings.maxHeight / 2000);
 
 	const spin = (performance.now() / 1000) * settings.rotationSpeed;
 
@@ -418,147 +442,192 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	ctx.translate(cx, cy);
 	ctx.rotate(spin);
 
-	ctx.lineWidth = Math.max(1.5, settings.thickness * 0.7);
-	ctx.lineCap = "round";
+	const angleStep = (Math.PI * 2) / bars;
+	const gapFraction = settings.segmented ? 0.35 : 0.15;
+	const barArcWidth = angleStep * (1 - gapFraction);
 
-	if (settings.glow) {
-		ctx.shadowBlur = settings.glow * 1.5;
-	}
+	ctx.lineCap = "round";
 
 	const sweep = Math.PI * 2;
 
-	function drawBar(angle: number, energy: number) {
+	function getEnergy(index: number): number {
+		let e = data[Math.min(data.length - 1, index)] ?? 0;
+		e = Math.pow(Math.min(1, e * settings.sensitivity), 0.7);
+		return e;
+	}
+
+	function drawBar(angle: number, energy: number, hueOverride?: number) {
 		const amp = energy * maxAmp;
+		if (amp < 0.5) return;
+
 		const r1 = baseRadius;
 		const r2 = baseRadius + amp;
 
-		const x1 = Math.cos(angle) * r1;
-		const y1 = Math.sin(angle) * r1;
-		const x2 = Math.cos(angle) * r2;
-		const y2 = Math.sin(angle) * r2;
+		const hue =
+			hueOverride !== undefined ? hueOverride
+			: settings.colorScheme === "neon" ? ((angle / sweep) * 360 + 180) % 360
+			: settings.colorScheme === "fire" ? 10 + energy * 50
+			: ((angle / sweep) * 360) % 360;
 
-		const hue = (angle / (Math.PI * 2)) * 360 + 180;
+		const lightness = 52 + energy * 22;
+		const alpha = 0.5 + energy * 0.5;
 
-		ctx.strokeStyle = `hsla(${hue},95%,${55 + energy * 20}%,${0.45 + energy * 0.55})`;
-		ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,0.85)` : "transparent";
+		ctx.strokeStyle = `hsla(${hue},92%,${lightness}%,${alpha})`;
+		ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,${0.6 + energy * 0.35})` : "transparent";
+		ctx.shadowBlur = settings.glow ? settings.glow * (0.8 + energy * 0.8) : 0;
 
 		ctx.beginPath();
-		ctx.moveTo(x1, y1);
-		ctx.lineTo(x2, y2);
+		ctx.arc(0, 0, (r1 + r2) / 2, angle - barArcWidth / 2, angle + barArcWidth / 2);
+		ctx.lineWidth = r2 - r1;
 		ctx.stroke();
 	}
 
 	if (settings.mirror) {
 		const barsPerSide = Math.floor(bars / 2);
-
 		for (let i = 0; i < barsPerSide; i += 1) {
 			const rel = i / barsPerSide;
-			const idx1 = startIndex + Math.floor(rel * rangeLength);
-			const idx2 = startIndex + Math.floor((1 - rel) * rangeLength);
+			const idx1 = Math.floor(rel * (dataLen - 1));
+			const idx2 = Math.floor((1 - rel) * (dataLen - 1));
 
-			let e1 = (data[idx1] ?? 0) / 255;
-			let e2 = (data[idx2] ?? 0) / 255;
-
-			e1 = Math.pow(e1 * settings.sensitivity, 0.65);
-			e2 = Math.pow(e2 * settings.sensitivity, 0.65);
+			const e1 = getEnergy(idx1);
+			const e2 = getEnergy(idx2);
 
 			const a1 = (i / barsPerSide) * sweep - Math.PI / 2;
 			const a2 = ((i + barsPerSide) / bars) * sweep - Math.PI / 2;
 
-			drawBar(a1, e1);
-			drawBar(a2, e2);
+			const hue1 =
+				settings.colorScheme === "neon" ? (rel * 360 + 180) % 360
+				: settings.colorScheme === "fire" ? 10 + e1 * 50
+				: (rel * 360) % 360;
+			const hue2 =
+				settings.colorScheme === "neon" ? ((1 - rel) * 360 + 180) % 360
+				: settings.colorScheme === "fire" ? 10 + e2 * 50
+				: ((1 - rel) * 360) % 360;
+
+			drawBar(a1, e1, hue1);
+			drawBar(a2, e2, hue2);
 		}
 	} else {
 		for (let i = 0; i < bars; i += 1) {
 			const rel = i / bars;
-			const index = startIndex + Math.floor(rel * rangeLength);
-
-			let energy = (data[index] ?? 0) / 255;
-			energy = Math.pow(energy * settings.sensitivity, 0.65);
-			energy = Math.min(1, energy);
-
+			const index = Math.floor(rel * (dataLen - 1));
+			const energy = getEnergy(index);
 			const angle = rel * sweep - Math.PI / 2;
 
-			let hue;
-			if (settings.colorScheme === "neon") hue = rel * 360 + 180;
-			else if (settings.colorScheme === "fire") hue = 10 + energy * 60;
-			else hue = rel * 360;
+			const hue =
+				settings.colorScheme === "neon" ? (rel * 360 + 180) % 360
+				: settings.colorScheme === "fire" ? 10 + energy * 50
+				: (rel * 360) % 360;
 
-			drawBar(angle, energy);
+			drawBar(angle, energy, hue);
 		}
 	}
+
+	// Inner ring
+	ctx.shadowBlur = 0;
+	ctx.strokeStyle = "rgba(255,255,255,0.08)";
+	ctx.lineWidth = 1;
+	ctx.beginPath();
+	ctx.arc(0, 0, baseRadius - 2, 0, Math.PI * 2);
+	ctx.stroke();
 
 	ctx.restore();
 }
 
-function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
-	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
-	const count = Math.max(64, Math.min(320, settings.frequencyBands * 2));
-	const usableLength = Math.max(1, endIndex - startIndex);
-	const baseline = height * 0.58;
-	const maxAmp = height * Math.max(0.1, settings.maxHeight / 1300);
+function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Float32Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	// visualData is already log-mapped, normalized & smoothed by getNormalizedData
+	const count = data.length;
+	const baseline = height * 0.55;
+	const maxAmp = height * Math.max(0.12, settings.maxHeight / 1100);
 
 	ctx.fillStyle = "rgba(8,13,30,0.18)";
 	ctx.fillRect(0, 0, width, height);
 
-	const samples = new Array<number>(count).fill(0);
-	for (let i = 0; i < count; i += 1) {
-		const sourceIndex = startIndex + Math.floor((i / count) * (usableLength - 1));
-		const energy = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
-		samples[i] = Math.pow(energy, 1.45);
+	// Build point array — data already smooth, no additional kernel needed
+	const pts: { x: number; y: number }[] = [];
+	for (let i = 0; i < count; i++) {
+		const v = data[i] ?? 0;
+		pts.push({ x: (i / (count - 1)) * width, y: baseline - v * maxAmp });
 	}
 
-	const smooth = new Array<number>(count).fill(0);
-	for (let i = 0; i < count; i += 1) {
-		const left = samples[Math.max(0, i - 1)] ?? 0;
-		const mid = samples[i] ?? 0;
-		const right = samples[Math.min(count - 1, i + 1)] ?? 0;
-		smooth[i] = left * 0.22 + mid * 0.56 + right * 0.22;
+	// Helper: draw smooth Catmull-Rom bezier path
+	function drawSmoothPath() {
+		ctx.moveTo(pts[0].x, pts[0].y);
+		for (let i = 0; i < pts.length - 1; i++) {
+			const p0 = pts[Math.max(0, i - 1)];
+			const p1 = pts[i];
+			const p2 = pts[i + 1];
+			const p3 = pts[Math.min(pts.length - 1, i + 2)];
+			const cp1x = p1.x + (p2.x - p0.x) / 6;
+			const cp1y = p1.y + (p2.y - p0.y) / 6;
+			const cp2x = p2.x - (p3.x - p1.x) / 6;
+			const cp2y = p2.y - (p3.y - p1.y) / 6;
+			ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+		}
 	}
 
-	const topStroke = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline);
-	topStroke.addColorStop(0, "rgba(255,255,255,0.9)");
-	topStroke.addColorStop(1, "rgba(225,232,240,0.85)");
+	// Gradient fill: use colorScheme-aware colors
+	const fillGrad = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline);
+	if (settings.colorScheme === "neon") {
+		fillGrad.addColorStop(0, "rgba(167,139,250,0.9)");
+		fillGrad.addColorStop(0.5, "rgba(34,211,238,0.75)");
+		fillGrad.addColorStop(1, "rgba(244,114,182,0.6)");
+	} else if (settings.colorScheme === "fire") {
+		fillGrad.addColorStop(0, "rgba(250,204,21,0.92)");
+		fillGrad.addColorStop(0.5, "rgba(249,115,22,0.8)");
+		fillGrad.addColorStop(1, "rgba(239,68,68,0.65)");
+	} else {
+		fillGrad.addColorStop(0, "rgba(255,255,255,0.92)");
+		fillGrad.addColorStop(0.5, "rgba(200,220,240,0.78)");
+		fillGrad.addColorStop(1, "rgba(6,182,212,0.55)");
+	}
 
-	const topFill = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline);
-	topFill.addColorStop(0, "rgba(255,255,255,0.92)");
-	topFill.addColorStop(1, "rgba(230,236,246,0.82)");
+	const strokeGrad = ctx.createLinearGradient(0, 0, width, 0);
+	if (settings.colorScheme === "neon") {
+		strokeGrad.addColorStop(0, "#f472b6");
+		strokeGrad.addColorStop(0.5, "#a78bfa");
+		strokeGrad.addColorStop(1, "#22d3ee");
+	} else if (settings.colorScheme === "fire") {
+		strokeGrad.addColorStop(0, "#ef4444");
+		strokeGrad.addColorStop(0.5, "#f97316");
+		strokeGrad.addColorStop(1, "#facc15");
+	} else {
+		strokeGrad.addColorStop(0, "#fb923c");
+		strokeGrad.addColorStop(0.5, "#f8fafc");
+		strokeGrad.addColorStop(1, "#22d3ee");
+	}
 
+	// Fill shape
 	ctx.beginPath();
 	ctx.moveTo(0, baseline);
-	for (let i = 0; i < count; i += 1) {
-		const x = (i / (count - 1)) * width;
-		const amp = (smooth[i] ?? 0) * maxAmp;
-		const y = baseline - amp;
-		ctx.lineTo(x, y);
-	}
+	drawSmoothPath();
 	ctx.lineTo(width, baseline);
 	ctx.closePath();
-	ctx.fillStyle = topFill;
+	ctx.fillStyle = fillGrad;
 	ctx.fill();
 
+	// Top stroke line
 	ctx.beginPath();
-	for (let i = 0; i < count; i += 1) {
-		const x = (i / (count - 1)) * width;
-		const amp = (smooth[i] ?? 0) * maxAmp;
-		const y = baseline - amp;
-		if (i === 0) ctx.moveTo(x, y);
-		else ctx.lineTo(x, y);
-	}
-	ctx.strokeStyle = topStroke;
-	ctx.lineWidth = Math.max(2, settings.thickness * 0.7);
-	ctx.shadowColor = "rgba(255,255,255,0.6)";
-	ctx.shadowBlur = settings.glow * 0.8;
+	drawSmoothPath();
+	ctx.strokeStyle = strokeGrad;
+	ctx.lineWidth = Math.max(1.5, settings.thickness * 0.65);
+	ctx.shadowColor =
+		settings.colorScheme === "neon" ? "rgba(167,139,250,0.7)"
+		: settings.colorScheme === "fire" ? "rgba(249,115,22,0.7)"
+		: "rgba(255,255,255,0.6)";
+	ctx.shadowBlur = settings.glow * 0.9;
 	ctx.stroke();
-
-	ctx.strokeStyle = "rgba(247,250,255,0.95)";
-	ctx.lineWidth = 2;
 	ctx.shadowBlur = 0;
+
+	// Baseline divider
+	ctx.strokeStyle = "rgba(247,250,255,0.55)";
+	ctx.lineWidth = 1;
 	ctx.beginPath();
 	ctx.moveTo(0, baseline);
 	ctx.lineTo(width, baseline);
 	ctx.stroke();
 
+	// Reflection (below baseline, flipped + faded)
 	ctx.save();
 	ctx.beginPath();
 	ctx.rect(0, baseline, width, height - baseline);
@@ -568,88 +637,136 @@ function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Uint8Array,
 
 	ctx.beginPath();
 	ctx.moveTo(0, baseline);
-	for (let i = 0; i < count; i += 1) {
-		const x = (i / (count - 1)) * width;
-		const amp = (smooth[i] ?? 0) * maxAmp;
-		const y = baseline - amp;
-		ctx.lineTo(x, y);
-	}
+	drawSmoothPath();
 	ctx.lineTo(width, baseline);
 	ctx.closePath();
 
-	const reflection = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline + maxAmp * 1.7);
-	reflection.addColorStop(0, "rgba(255,255,255,0.42)");
-	reflection.addColorStop(0.45, "rgba(235,241,250,0.2)");
-	reflection.addColorStop(1, "rgba(229,235,245,0)");
-	ctx.fillStyle = reflection;
-	ctx.filter = "blur(5px)";
+	const refGrad = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline);
+	refGrad.addColorStop(0, "rgba(255,255,255,0.28)");
+	refGrad.addColorStop(0.5, "rgba(200,220,240,0.12)");
+	refGrad.addColorStop(1, "rgba(10,14,39,0)");
+	ctx.fillStyle = refGrad;
+	ctx.filter = "blur(3px)";
 	ctx.fill();
 	ctx.restore();
 	ctx.filter = "none";
 }
 
-function drawLayeredWaveSpectrum(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
-	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
-	const count = Math.max(56, Math.min(220, settings.frequencyBands));
-	const usableLength = Math.max(1, endIndex - startIndex);
-	const baseline = height * 0.72;
-	const maxAmp = height * Math.max(0.08, settings.maxHeight / 1550);
+function drawLayeredWaveSpectrum(ctx: CanvasRenderingContext2D, data: Float32Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	// visualData is already log-mapped & normalized (0-1) — use directly
+	const count = data.length;
+	const baseline = height * 0.68;
+	const maxAmp = height * Math.max(0.1, settings.maxHeight / 1200);
 
-	ctx.fillStyle = "rgba(9,14,36,0.12)";
+	ctx.fillStyle = "rgba(9,14,36,0.14)";
 	ctx.fillRect(0, 0, width, height);
 
-	const primary = new Array<number>(count).fill(0);
-	for (let i = 0; i < count; i += 1) {
-		const sourceIndex = startIndex + Math.floor((i / count) * (usableLength - 1));
-		const energy = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
-		primary[i] = Math.pow(energy, 1.15);
+	// Gaussian smooth
+	const smooth = new Float32Array(count);
+	for (let i = 0; i < count; i++) {
+		let sum = 0,
+			w = 0;
+		for (let k = -4; k <= 4; k++) {
+			const j = Math.max(0, Math.min(count - 1, i + k));
+			const wk = Math.exp(-0.4 * k * k);
+			sum += (data[j] ?? 0) * wk;
+			w += wk;
+		}
+		smooth[i] = sum / w;
 	}
 
-	const smooth = new Array<number>(count).fill(0);
-	for (let i = 0; i < count; i += 1) {
-		const prev = primary[Math.max(0, i - 2)] ?? 0;
-		const left = primary[Math.max(0, i - 1)] ?? 0;
-		const mid = primary[i] ?? 0;
-		const right = primary[Math.min(count - 1, i + 1)] ?? 0;
-		smooth[i] = prev * 0.12 + left * 0.2 + mid * 0.44 + right * 0.24;
+	// Color schemes for layers
+	type LayerDef = { ampScale: number; phase: number; alpha: number; color: string; strokeColor: string };
+	let layers: LayerDef[];
+	const t = performance.now();
+
+	if (settings.colorScheme === "neon") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(244,114,182,0.75)", strokeColor: "rgba(244,114,182,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(167,139,250,0.82)", strokeColor: "rgba(167,139,250,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(34,211,238,0.88)", strokeColor: "rgba(34,211,238,1)" },
+		];
+	} else if (settings.colorScheme === "fire") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(239,68,68,0.72)", strokeColor: "rgba(239,68,68,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(249,115,22,0.8)", strokeColor: "rgba(249,115,22,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(250,204,21,0.88)", strokeColor: "rgba(250,204,21,1)" },
+		];
+	} else {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(6,182,212,0.7)", strokeColor: "rgba(6,182,212,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(251,146,60,0.78)", strokeColor: "rgba(251,146,60,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.9, color: "rgba(248,250,252,0.92)", strokeColor: "rgba(255,255,255,1)" },
+		];
 	}
 
-	const layerConfigs = [
-		{ amp: maxAmp * 1.15, phase: 0.3, alpha: 0.97, fill: "rgba(255,255,255,0.95)" },
-		{ amp: maxAmp * 0.72, phase: 1.05, alpha: 0.78, fill: "rgba(34,211,238,0.92)" },
-	] as const;
+	function buildPts(ampScale: number, phase: number): { x: number; y: number }[] {
+		const pts: { x: number; y: number }[] = [];
+		for (let i = 0; i < count; i++) {
+			const x = (i / (count - 1)) * width;
+			const wobble = Math.sin((i / count) * Math.PI * 5 + t * 0.00075 + phase) * maxAmp * ampScale * 0.12;
+			const y = baseline - (smooth[i] ?? 0) * maxAmp * ampScale - wobble;
+			pts.push({ x, y });
+		}
+		return pts;
+	}
 
-	for (const layer of layerConfigs) {
+	function drawBezierFill(pts: { x: number; y: number }[], fillStyle: string | CanvasGradient, alpha: number) {
 		ctx.beginPath();
 		ctx.moveTo(0, baseline);
-
-		for (let i = 0; i < count; i += 1) {
-			const x = (i / (count - 1)) * width;
-			const wobble = Math.sin((i / count) * Math.PI * 4 + performance.now() * 0.00085 + layer.phase) * layer.amp * 0.18;
-			const y = baseline - (smooth[i] ?? 0) * layer.amp - wobble;
-			ctx.lineTo(x, y);
+		ctx.lineTo(pts[0].x, pts[0].y);
+		for (let i = 0; i < pts.length - 1; i++) {
+			const p0 = pts[Math.max(0, i - 1)];
+			const p1 = pts[i];
+			const p2 = pts[i + 1];
+			const p3 = pts[Math.min(pts.length - 1, i + 2)];
+			const cp1x = p1.x + (p2.x - p0.x) / 6;
+			const cp1y = p1.y + (p2.y - p0.y) / 6;
+			const cp2x = p2.x - (p3.x - p1.x) / 6;
+			const cp2y = p2.y - (p3.y - p1.y) / 6;
+			ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
 		}
-
 		ctx.lineTo(width, baseline);
 		ctx.closePath();
-		ctx.globalAlpha = layer.alpha;
-		ctx.fillStyle = layer.fill;
+		ctx.globalAlpha = alpha;
+		ctx.fillStyle = fillStyle;
 		ctx.fill();
 	}
 
-	ctx.globalAlpha = 1;
-	ctx.beginPath();
-	for (let i = 0; i < count; i += 1) {
-		const x = (i / (count - 1)) * width;
-		const y = baseline - (smooth[i] ?? 0) * layerConfigs[0].amp;
-		if (i === 0) ctx.moveTo(x, y);
-		else ctx.lineTo(x, y);
+	function drawBezierStroke(pts: { x: number; y: number }[], strokeColor: string) {
+		ctx.beginPath();
+		ctx.moveTo(pts[0].x, pts[0].y);
+		for (let i = 0; i < pts.length - 1; i++) {
+			const p0 = pts[Math.max(0, i - 1)];
+			const p1 = pts[i];
+			const p2 = pts[i + 1];
+			const p3 = pts[Math.min(pts.length - 1, i + 2)];
+			ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
+		}
+		ctx.strokeStyle = strokeColor;
+		ctx.lineWidth = Math.max(1.5, settings.thickness * 0.6);
+		ctx.shadowBlur = settings.glow * 0.85;
+		ctx.stroke();
+		ctx.shadowBlur = 0;
 	}
-	ctx.strokeStyle = "rgba(255,255,255,0.9)";
-	ctx.lineWidth = Math.max(2, settings.thickness * 0.72);
-	ctx.shadowColor = "rgba(255,255,255,0.35)";
-	ctx.shadowBlur = settings.glow * 0.9;
-	ctx.stroke();
+
+	// Draw back-to-front layers
+	for (const layer of layers) {
+		const pts = buildPts(layer.ampScale, layer.phase);
+
+		// Vertical gradient per layer for depth
+		const grad = ctx.createLinearGradient(0, baseline - maxAmp * layer.ampScale, 0, baseline);
+		grad.addColorStop(0, layer.color);
+		grad.addColorStop(1, layer.color.replace(/[\d.]+\)$/, "0)"));
+
+		ctx.shadowColor = layer.strokeColor;
+		drawBezierFill(pts, grad, layer.alpha);
+		ctx.globalAlpha = 1;
+
+		drawBezierStroke(pts, layer.strokeColor);
+	}
+
+	ctx.globalAlpha = 1;
 	ctx.shadowBlur = 0;
 }
 
@@ -813,11 +930,12 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 			const now = performance.now();
 			const deltaMs = Math.max(1, now - lastFrameTimeRef.current);
 			lastFrameTimeRef.current = now;
+			const visualData = getNormalizedData(frequencyData, settings.frequencyBands, sampleRate, settings);
 
 			const draw = (ctx: CanvasRenderingContext2D, width: number, height: number, particles: Particle[]) => {
 				ctx.clearRect(0, 0, width, height);
-				const textReact = resolveBandEnergy(frequencyData, sampleRate, settings.overlayTextReactMinHz, settings.overlayTextReactMaxHz, settings.sensitivity);
-				const backgroundReact = resolveBandEnergy(frequencyData, sampleRate, settings.backgroundReactMinHz, settings.backgroundReactMaxHz, settings.sensitivity);
+				const textReact = resolveBandEnergy(visualData, sampleRate, settings.overlayTextReactMinHz, settings.overlayTextReactMaxHz, settings.sensitivity);
+				const backgroundReact = resolveBandEnergy(visualData, sampleRate, settings.backgroundReactMinHz, settings.backgroundReactMaxHz, settings.sensitivity);
 
 				drawBackground(ctx, width, height, bassIntensity, backgroundReact, imageRef.current, settings, smoothBassRef, particles, deltaMs);
 
@@ -827,6 +945,7 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 					height,
 					settings,
 					frequencyData,
+					visualData,
 					timeData,
 					sampleRate,
 					bassIntensity,
@@ -848,15 +967,15 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				}
 
 				if (mode === "bars") {
-					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
+					drawBars(ctx, visualData, width, height, settings, barDisplayStateRef.current, deltaMs);
 				} else if (mode === "waveform") {
 					drawWaveform(ctx, timeData, width, height, settings);
 				} else if (mode === "reflective") {
-					drawReflectiveSpectrum(ctx, frequencyData, width, height, sampleRate, settings);
+					drawReflectiveSpectrum(ctx, visualData, width, height, sampleRate, settings);
 				} else if (mode === "layered-wave") {
-					drawLayeredWaveSpectrum(ctx, frequencyData, width, height, sampleRate, settings);
+					drawLayeredWaveSpectrum(ctx, visualData, width, height, sampleRate, settings);
 				} else {
-					drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
+					drawCircular(ctx, visualData, width, height, sampleRate, settings);
 				}
 
 				if (settings.extensionEnabled && spectrumExtensionRef.current && !extensionErrorRef.current.spectrum) {
