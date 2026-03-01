@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
 	fallSpeed: 3,
 	colorScheme: "sunset",
 	mirror: true,
+	drawProgress: true,
 	overlayText: "",
 	overlayMode: "text",
 	overlayTextSize: 56,

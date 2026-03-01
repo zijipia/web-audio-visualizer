@@ -22,6 +22,7 @@ export interface SpectrumSettings {
 	fallSpeed: number;
 	colorScheme: SpectrumColorScheme;
 	mirror: boolean;
+	drawProgress: boolean;
 	overlayText: string;
 	overlayMode: "text" | "logo";
 	overlayTextSize: number;
@@ -69,12 +70,72 @@ interface ExtensionContext {
 
 type ExtensionFunction = (context: ExtensionContext) => void;
 
+export function compileExtensionSafe(code: string): ExtensionFunction | null {
+	const trimmed = code.trim();
+	if (!trimmed) return null;
+
+	try {
+		// Không cho truy cập global scope
+		const factory = new Function(
+			"context",
+			`
+			"use strict";
+			
+			// Hard block dangerous globals
+			const window = undefined;
+			const document = undefined;
+			const globalThis = undefined;
+			const self = undefined;
+			const fetch = undefined;
+			const XMLHttpRequest = undefined;
+			const WebSocket = undefined;
+			const Worker = undefined;
+			const navigator = undefined;
+			const location = undefined;
+			const localStorage = undefined;
+			const sessionStorage = undefined;
+			const indexedDB = undefined;
+
+			// Freeze prototypes (chống prototype pollution)
+			Object.freeze(Object.prototype);
+			Object.freeze(Function.prototype);
+			Object.freeze(Array.prototype);
+
+			${trimmed}
+			`,
+		);
+
+		const fn: ExtensionFunction = (context) => {
+			const start = performance.now();
+
+			try {
+				factory(context);
+
+				// Guard thời gian frame
+				if (performance.now() - start > 6) {
+					throw new Error("Extension exceeded frame time budget");
+				}
+			} catch (err) {
+				console.warn("[extension] runtime error", err);
+				throw err;
+			}
+		};
+
+		return fn;
+	} catch (err) {
+		console.warn("[extension] compile failed", err);
+		return null;
+	}
+}
+
 function compileExtension(code: string): ExtensionFunction | null {
 	const trimmed = code.trim();
 	if (!trimmed) return null;
 
 	try {
-		const fn = new Function("context", `"use strict"; ${trimmed}`) as ExtensionFunction;
+		// const fn = new Function("context", `"use strict"; ${trimmed}`) as ExtensionFunction;
+		const fn = compileExtensionSafe(code);
+
 		return fn;
 	} catch (error) {
 		console.warn("[extension] Failed to compile custom code", error);
@@ -251,13 +312,7 @@ function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const usableLength = Math.max(1, endIndex - startIndex);
 
-	const count = Math.max(
-		16,
-		Math.min(
-			settings.frequencyBands,
-			data.length,
-		),
-	);
+	const count = Math.max(16, Math.min(settings.frequencyBands, data.length));
 
 	const barWidth = width / count;
 	const gradient = createGradient(ctx, 0, height, settings.colorScheme);
@@ -346,58 +401,111 @@ function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const rangeLength = Math.max(1, endIndex - startIndex);
-	const step = Math.max(1, Math.floor(rangeLength / Math.max(36, settings.frequencyBands)));
+	const bars = Math.max(64, settings.frequencyBands * 2);
+	const step = Math.max(1, Math.floor(rangeLength / bars));
 
-	ctx.fillStyle = `rgba(10,14,39,${0.12 + (1 - settings.softness) * 0.24})`;
+	ctx.fillStyle = `rgba(10,14,39,${0.1 + (1 - settings.softness) * 0.22})`;
 	ctx.fillRect(0, 0, width, height);
 
-	const centerX = width / 2;
-	const centerY = height / 2;
-	const baseRadius = Math.min(centerX, centerY) * 0.24;
-	const maxLength = Math.min(centerX, centerY) * (0.38 + settings.maxHeight / 1000);
+	const cx = width / 2;
+	const cy = height / 2;
+
+	const baseRadius = Math.min(cx, cy) * 0.24;
+	const maxAmp = Math.min(cx, cy) * (0.32 + settings.maxHeight / 1200);
+
 	const spin = (performance.now() / 1000) * settings.rotationSpeed;
 
 	ctx.save();
-	ctx.translate(centerX, centerY);
+	ctx.translate(cx, cy);
 	ctx.rotate(spin);
-	ctx.shadowColor = settings.glow ? "rgba(255,130,80,0.85)" : "transparent";
-	ctx.shadowBlur = settings.glow;
 
-	const sweep = settings.mirror ? Math.PI : Math.PI * 2;
-	for (let i = 0; i < rangeLength; i += step) {
-		const sampleIndex = startIndex + i;
-		const strength = Math.min(1, ((data[sampleIndex] ?? 0) / 255) * settings.sensitivity);
-		const angle = (i / rangeLength) * sweep;
-		const length = baseRadius + strength * maxLength;
+	ctx.lineWidth = Math.max(1.5, settings.thickness * 0.7);
+	ctx.lineCap = "round";
 
-		const x1 = Math.cos(angle) * baseRadius;
-		const y1 = Math.sin(angle) * baseRadius;
-		const x2 = Math.cos(angle) * length;
-		const y2 = Math.sin(angle) * length;
+	if (settings.glow) {
+		ctx.shadowBlur = settings.glow * 1.5;
+	}
 
-		const hueOffset =
-			settings.colorScheme === "neon" ? 180
-			: settings.colorScheme === "fire" ? 10
-			: 30;
-		ctx.strokeStyle = `hsla(${hueOffset + strength * 70}, 92%, ${54 + strength * 18}%, 0.94)`;
-		ctx.lineWidth = Math.max(1, settings.thickness * 0.7);
+	// const sweep = settings.mirror ? Math.PI : Math.PI * 2;
+	const sweep = Math.PI * 2;
+
+	function drawBar(angle: number, energy: number) {
+		const amp = energy * maxAmp;
+		const r1 = baseRadius;
+		const r2 = baseRadius + amp;
+
+		const x1 = Math.cos(angle) * r1;
+		const y1 = Math.sin(angle) * r1;
+		const x2 = Math.cos(angle) * r2;
+		const y2 = Math.sin(angle) * r2;
+
+		const hue = (angle / (Math.PI * 2)) * 360 + 180;
+
+		ctx.strokeStyle = `hsla(${hue},95%,${55 + energy * 20}%,${0.45 + energy * 0.55})`;
+		ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,0.85)` : "transparent";
+
 		ctx.beginPath();
 		ctx.moveTo(x1, y1);
 		ctx.lineTo(x2, y2);
 		ctx.stroke();
+	}
+	if (settings.mirror) {
+		const half = Math.floor(rangeLength / 2);
 
-		if (settings.mirror) {
+		for (let i = 0; i < half; i += step) {
+			const idx1 = startIndex + i;
+			const idx2 = startIndex + (half - i);
+
+			let e1 = (data[idx1] ?? 0) / 255;
+			let e2 = (data[idx2] ?? 0) / 255;
+
+			e1 = Math.pow(e1 * settings.sensitivity, 0.65);
+			e2 = Math.pow(e2 * settings.sensitivity, 0.65);
+
+			const a1 = (i / half) * Math.PI * 2 - Math.PI / 2;
+			const a2 = ((i + half) / half) * Math.PI * 2 - Math.PI / 2;
+
+			drawBar(a1, e1);
+			drawBar(a2, e2);
+		}
+	} else {
+		for (let i = 0; i < rangeLength; i += step) {
+			const index = startIndex + i;
+
+			let energy = (data[index] ?? 0) / 255;
+
+			// Anti-spike smoothing
+			energy = Math.pow(energy * settings.sensitivity, 0.65);
+			energy = Math.min(1, energy);
+
+			const angle = (i / rangeLength) * sweep - Math.PI / 2;
+			const amp = energy * maxAmp;
+
+			const r1 = baseRadius;
+			const r2 = baseRadius + amp;
+
+			const x1 = Math.cos(angle) * r1;
+			const y1 = Math.sin(angle) * r1;
+			const x2 = Math.cos(angle) * r2;
+			const y2 = Math.sin(angle) * r2;
+
+			let hue;
+			if (settings.colorScheme === "neon") hue = (i / rangeLength) * 360 + 180;
+			else if (settings.colorScheme === "fire") hue = 10 + energy * 60;
+			else hue = (i / rangeLength) * 360;
+
+			ctx.strokeStyle = `hsla(${hue}, 95%, ${55 + energy * 20}%, ${0.5 + energy * 0.5})`;
+			ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,0.85)` : "transparent";
+
 			ctx.beginPath();
-			ctx.moveTo(x1, -y1);
-			ctx.lineTo(x2, -y2);
+			ctx.moveTo(x1, y1);
+			ctx.lineTo(x2, y2);
 			ctx.stroke();
 		}
 	}
 
-	ctx.shadowBlur = 0;
 	ctx.restore();
 }
-
 
 function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number, textReact: number) {
 	const text = settings.overlayText.trim();
@@ -562,20 +670,8 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 
 			const draw = (ctx: CanvasRenderingContext2D, width: number, height: number, particles: Particle[]) => {
 				ctx.clearRect(0, 0, width, height);
-				const textReact = resolveBandEnergy(
-					frequencyData,
-					sampleRate,
-					settings.overlayTextReactMinHz,
-					settings.overlayTextReactMaxHz,
-					settings.sensitivity,
-				);
-				const backgroundReact = resolveBandEnergy(
-					frequencyData,
-					sampleRate,
-					settings.backgroundReactMinHz,
-					settings.backgroundReactMaxHz,
-					settings.sensitivity,
-				);
+				const textReact = resolveBandEnergy(frequencyData, sampleRate, settings.overlayTextReactMinHz, settings.overlayTextReactMaxHz, settings.sensitivity);
+				const backgroundReact = resolveBandEnergy(frequencyData, sampleRate, settings.backgroundReactMinHz, settings.backgroundReactMaxHz, settings.sensitivity);
 
 				drawBackground(ctx, width, height, bassIntensity, backgroundReact, imageRef.current, settings, smoothBassRef, particles, deltaMs);
 
@@ -622,10 +718,8 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 					}
 				}
 
-				const offsetSec = Math.max(0, settings.audioOffsetMs / 1000);
-				const preferredDuration = settings.audioDurationMs > 0 ? settings.audioDurationMs / 1000 : duration;
-				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
-				const effectiveTime = Math.max(0, currentTime - offsetSec);
+				const effectiveDuration = Math.max(0, duration);
+				const effectiveTime = Math.max(0, currentTime);
 
 				if (settings.overlayMode === "logo") {
 					drawOverlayLogo(ctx, width, height, settings, bassIntensity, textReact, overlayImageRef.current);
@@ -641,8 +735,7 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 						console.warn("[extension] Text code runtime error", error);
 					}
 				}
-
-				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
+				if (settings.drawProgress) drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
 			draw(context, displayWidth, displayHeight, screenParticlesRef.current);
