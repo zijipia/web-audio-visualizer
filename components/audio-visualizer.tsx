@@ -64,15 +64,8 @@ export function AudioVisualizer() {
 	const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
 
 	const bassIntensity = useMemo(() => {
-		if (!audio.frequencyData.length) return 0;
-		const maxFrequency = 256;
-		const nyquist = (audio.audioContext?.sampleRate ?? 44100) / 2;
-		const count = Math.max(1, Math.floor((maxFrequency / nyquist) * audio.frequencyData.length));
-
-		let sum = 0;
-		for (let i = 0; i < count; i += 1) sum += audio.frequencyData[i] ?? 0;
-		return Math.min(1, (sum / count / 255) * settings.sensitivity);
-	}, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime, settings.sensitivity]);
+		return Math.min(1, audio.frequencyBands.bass * settings.sensitivity);
+	}, [audio.frequencyBands.bass, settings.sensitivity]);
 
 	const loadAudio = useCallback(
 		async (file: File) => {

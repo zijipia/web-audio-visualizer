@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export interface AudioState {
   isPlaying: boolean;
@@ -16,6 +16,11 @@ export interface UseAudioContextReturn {
   analyser: AnalyserNode | null;
   frequencyData: Uint8Array;
   timeData: Uint8Array;
+  frequencyBands: {
+    bass: number;
+    mid: number;
+    treble: number;
+  };
   audioElement: HTMLAudioElement | null;
   loadAudio: (file: File) => Promise<void>;
   play: () => Promise<void>;
@@ -27,6 +32,36 @@ export interface UseAudioContextReturn {
 }
 
 let sharedAudioContext: AudioContext | null = null;
+
+const BASS_RANGE: [number, number] = [20, 250];
+const MID_RANGE: [number, number] = [250, 4000];
+const TREBLE_RANGE: [number, number] = [4000, 16000];
+
+function resolveBandEnergy(frequencyData: Uint8Array, sampleRate: number, minHz: number, maxHz: number) {
+  if (!frequencyData.length || !Number.isFinite(sampleRate) || sampleRate <= 0) {
+    return 0;
+  }
+
+  const nyquist = sampleRate / 2;
+  const clampedMin = Math.max(0, minHz);
+  const clampedMax = Math.max(clampedMin, Math.min(maxHz, nyquist));
+
+  const minIndex = Math.floor((clampedMin / nyquist) * frequencyData.length);
+  const maxIndex = Math.max(minIndex + 1, Math.ceil((clampedMax / nyquist) * frequencyData.length));
+
+  let sum = 0;
+  let count = 0;
+  for (let index = minIndex; index < maxIndex && index < frequencyData.length; index += 1) {
+    sum += frequencyData[index] ?? 0;
+    count += 1;
+  }
+
+  if (!count) {
+    return 0;
+  }
+
+  return Math.min(1, sum / count / 255);
+}
 
 export function useAudioContext(): UseAudioContextReturn {
   const audioContextRef = useRef<AudioContext | null>(sharedAudioContext);
@@ -194,6 +229,15 @@ export function useAudioContext(): UseAudioContextReturn {
     return recordingDestinationRef.current?.stream ?? null;
   }, []);
 
+  const frequencyBands = useMemo(() => {
+    const sampleRate = audioContextRef.current?.sampleRate ?? 44100;
+    return {
+      bass: resolveBandEnergy(frequencyDataRef.current, sampleRate, ...BASS_RANGE),
+      mid: resolveBandEnergy(frequencyDataRef.current, sampleRate, ...MID_RANGE),
+      treble: resolveBandEnergy(frequencyDataRef.current, sampleRate, ...TREBLE_RANGE),
+    };
+  }, [state.currentTime]);
+
   const cleanup = useCallback(() => {
     if (audioElementRef.current) {
       audioElementRef.current.pause();
@@ -233,6 +277,7 @@ export function useAudioContext(): UseAudioContextReturn {
     analyser: analyserRef.current,
     frequencyData: frequencyDataRef.current,
     timeData: timeDataRef.current,
+    frequencyBands,
     audioElement: audioElementRef.current,
     loadAudio,
     play,
