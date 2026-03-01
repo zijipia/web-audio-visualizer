@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, Circle, Waves } from 'lucide-react';
+import { BarChart3, Circle, Waves, WavesLadder } from 'lucide-react';
 import type { VisualizationMode } from './visualization-canvas';
 
 interface ModeSwitcherProps {
@@ -23,6 +23,16 @@ const modes: { id: VisualizationMode; label: string; icon: React.ReactNode }[] =
     id: 'circular',
     label: 'Circular',
     icon: <Circle size={20} />,
+  },
+  {
+    id: 'liquid',
+    label: 'Liquid Reflection',
+    icon: <Waves size={20} />,
+  },
+  {
+    id: 'dual-wave',
+    label: 'Dual Wave',
+    icon: <WavesLadder size={20} />,
   },
 ];
 
