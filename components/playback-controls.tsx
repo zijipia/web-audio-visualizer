@@ -28,9 +28,11 @@ const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
 ];
 
 const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire"];
+type SettingsTab = "audio" | "background" | "text";
 
 export function PlaybackControls({ isPlaying, currentTime, duration, volume, isLoading, mode, settings, onSettingsChange, onModeChange, onPlay, onPause, onSeek, onVolumeChange }: PlaybackControlsProps) {
 	const [showSettings, setShowSettings] = useState(false);
+	const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
 	const formatTime = (value: number) => {
 		if (!Number.isFinite(value)) return "0:00";
@@ -38,6 +40,9 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 		const seconds = Math.floor(value % 60);
 		return `${minutes}:${String(seconds).padStart(2, "0")}`;
 	};
+
+	const tabButtonClass = (tab: SettingsTab) =>
+		`rounded-lg px-3 py-1.5 text-xs transition ${activeTab === tab ? "bg-cyan-500 text-white" : "text-slate-200 hover:bg-white/10"}`;
 
 	return (
 		<div className='fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl md:inset-x-8'>
@@ -61,16 +66,7 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 						disabled={isLoading}
 						className='rounded-full bg-orange-500 p-3 text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50'
 						aria-label={isPlaying ? "Pause" : "Play"}>
-						{isPlaying ?
-							<Pause
-								size={20}
-								fill='currentColor'
-							/>
-						: 	<Play
-								size={20}
-								fill='currentColor'
-							/>
-						}
+						{isPlaying ? <Pause size={20} fill='currentColor' /> : <Play size={20} fill='currentColor' />}
 					</button>
 
 					<span className='font-mono text-sm text-slate-100'>
@@ -97,224 +93,82 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 				</div>
 
 				<div className='flex items-center gap-2 md:w-44'>
-					<Volume2
-						size={18}
-						className='text-slate-100'
-					/>
-					<input
-						type='range'
-						min={0}
-						max={1}
-						step={0.01}
-						value={volume}
-						onChange={(event) => onVolumeChange(Number(event.target.value))}
-						className='h-1.5 w-full'
-						aria-label='Volume'
-					/>
+					<Volume2 size={18} className='text-slate-100' />
+					<input type='range' min={0} max={1} step={0.01} value={volume} onChange={(event) => onVolumeChange(Number(event.target.value))} className='h-1.5 w-full' aria-label='Volume' />
 				</div>
 			</div>
 
 			{showSettings && (
-				<div className='mt-3 grid gap-3 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200 md:grid-cols-2 lg:grid-cols-4'>
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Start Frequency: {settings.startFrequency} Hz</span>
-						<input type='range' min={0} max={20000} step={10} value={settings.startFrequency} onChange={(event) => onSettingsChange({ ...settings, startFrequency: Number(event.target.value) })} />
-					</label>
+				<div className='mt-3 rounded-xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-200'>
+					<div className='mb-3 flex flex-wrap items-center gap-1 rounded-lg border border-white/10 bg-slate-900/40 p-1'>
+						<button onClick={() => setActiveTab("audio")} className={tabButtonClass("audio")}>Audio</button>
+						<button onClick={() => setActiveTab("background")} className={tabButtonClass("background")}>Background</button>
+						<button onClick={() => setActiveTab("text")} className={tabButtonClass("text")}>Text / Logo</button>
+					</div>
 
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>End Frequency: {settings.endFrequency} Hz</span>
-						<input type='range' min={100} max={22000} step={10} value={settings.endFrequency} onChange={(event) => onSettingsChange({ ...settings, endFrequency: Number(event.target.value) })} />
-					</label>
+					{activeTab === "audio" && (
+						<div className='grid gap-3 md:grid-cols-2 lg:grid-cols-4'>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Start Frequency: {settings.startFrequency} Hz</span><input type='range' min={0} max={20000} step={10} value={settings.startFrequency} onChange={(event) => onSettingsChange({ ...settings, startFrequency: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>End Frequency: {settings.endFrequency} Hz</span><input type='range' min={100} max={22000} step={10} value={settings.endFrequency} onChange={(event) => onSettingsChange({ ...settings, endFrequency: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Frequency bands: {settings.frequencyBands}</span><input type='range' min={16} max={1000} step={1} value={settings.frequencyBands} onChange={(event) => onSettingsChange({ ...settings, frequencyBands: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Maximum Height: {Math.round(settings.maxHeight)}</span><input type='range' min={1} max={1000} step={1} value={settings.maxHeight} onChange={(event) => onSettingsChange({ ...settings, maxHeight: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Audio Duration (milliseconds): {settings.audioDurationMs || 0}</span><input type='range' min={0} max={1200} step={1} value={settings.audioDurationMs} onChange={(event) => onSettingsChange({ ...settings, audioDurationMs: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Audio Offset (milliseconds): {settings.audioOffsetMs}</span><input type='range' min={0} max={500} step={1} value={settings.audioOffsetMs} onChange={(event) => onSettingsChange({ ...settings, audioOffsetMs: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Thickness: {settings.thickness.toFixed(1)}</span><input type='range' min={1} max={14} step={0.5} value={settings.thickness} onChange={(event) => onSettingsChange({ ...settings, thickness: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Softness: {settings.softness.toFixed(2)}</span><input type='range' min={0} max={1} step={0.01} value={settings.softness} onChange={(event) => onSettingsChange({ ...settings, softness: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Fall Speed: {settings.fallSpeed.toFixed(1)}</span><input type='range' min={0.2} max={12} step={0.1} value={settings.fallSpeed} onChange={(event) => onSettingsChange({ ...settings, fallSpeed: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Rotation: {settings.rotationSpeed.toFixed(2)}x</span><input type='range' min={-4} max={4} step={0.02} value={settings.rotationSpeed} onChange={(event) => onSettingsChange({ ...settings, rotationSpeed: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Sensitivity: {settings.sensitivity.toFixed(2)}</span><input type='range' min={0.6} max={2} step={0.05} value={settings.sensitivity} onChange={(event) => onSettingsChange({ ...settings, sensitivity: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Radial boost: {settings.radialBoost.toFixed(2)}</span><input type='range' min={0} max={1.5} step={0.05} value={settings.radialBoost} onChange={(event) => onSettingsChange({ ...settings, radialBoost: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Glow: {settings.glow.toFixed(1)}</span><input type='range' min={0} max={40} step={0.05} value={settings.glow} onChange={(event) => onSettingsChange({ ...settings, glow: Number(event.target.value) })} /></label>
+							<label className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Mirror</span><input type='checkbox' checked={settings.mirror} onChange={(event) => onSettingsChange({ ...settings, mirror: event.target.checked })} /></label>
+							<label className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Small blocks</span><input type='checkbox' checked={settings.segmented} onChange={(event) => onSettingsChange({ ...settings, segmented: event.target.checked })} /></label>
+							<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'><span>Color scheme</span><select className='w-full rounded-md border border-white/10 bg-slate-900/70 p-1' value={settings.colorScheme} onChange={(event) => onSettingsChange({ ...settings, colorScheme: event.target.value as SpectrumColorScheme })}>{SCHEMES.map((scheme) => <option key={scheme} value={scheme}>{scheme}</option>)}</select></label>
+						</div>
+					)}
 
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Frequency bands: {settings.frequencyBands}</span>
-						<input type='range' min={16} max={1000} step={1} value={settings.frequencyBands} onChange={(event) => onSettingsChange({ ...settings, frequencyBands: Number(event.target.value) })} />
-					</label>
+					{activeTab === "background" && (
+						<div className='grid gap-3 md:grid-cols-2 lg:grid-cols-4'>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Scale: {settings.backgroundScale.toFixed(2)}x</span><input type='range' min={0.6} max={2.2} step={0.01} value={settings.backgroundScale} onChange={(event) => onSettingsChange({ ...settings, backgroundScale: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Blur: {settings.backgroundBlur.toFixed(1)} px</span><input type='range' min={0} max={20} step={0.1} value={settings.backgroundBlur} onChange={(event) => onSettingsChange({ ...settings, backgroundBlur: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Wiggle: {settings.backgroundWiggle.toFixed(1)} px</span><input type='range' min={0} max={120} step={0.5} value={settings.backgroundWiggle} onChange={(event) => onSettingsChange({ ...settings, backgroundWiggle: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background X: {Math.round(settings.backgroundX)} px</span><input type='range' min={-960} max={960} step={1} value={settings.backgroundX} onChange={(event) => onSettingsChange({ ...settings, backgroundX: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Y: {Math.round(settings.backgroundY)} px</span><input type='range' min={-540} max={540} step={1} value={settings.backgroundY} onChange={(event) => onSettingsChange({ ...settings, backgroundY: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Strength: {settings.backgroundReactStrength.toFixed(2)}</span><input type='range' min={0} max={0.8} step={0.01} value={settings.backgroundReactStrength} onChange={(event) => onSettingsChange({ ...settings, backgroundReactStrength: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Glow: {settings.backgroundGlow.toFixed(2)}</span><input type='range' min={0} max={2} step={0.01} value={settings.backgroundGlow} onChange={(event) => onSettingsChange({ ...settings, backgroundGlow: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Min: {settings.backgroundReactMinHz} Hz</span><input type='range' min={0} max={20000} step={10} value={settings.backgroundReactMinHz} onChange={(event) => onSettingsChange({ ...settings, backgroundReactMinHz: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Max: {settings.backgroundReactMaxHz} Hz</span><input type='range' min={20} max={22000} step={10} value={settings.backgroundReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, backgroundReactMaxHz: Number(event.target.value) })} /></label>
+						</div>
+					)}
 
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Maximum Height: {Math.round(settings.maxHeight)}</span>
-						<input type='range' min={1} max={1000} step={1} value={settings.maxHeight} onChange={(event) => onSettingsChange({ ...settings, maxHeight: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Audio Duration (milliseconds): {settings.audioDurationMs || 0}</span>
-						<input type='range' min={0} max={1200} step={1} value={settings.audioDurationMs} onChange={(event) => onSettingsChange({ ...settings, audioDurationMs: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Audio Offset (milliseconds): {settings.audioOffsetMs}</span>
-						<input type='range' min={0} max={500} step={1} value={settings.audioOffsetMs} onChange={(event) => onSettingsChange({ ...settings, audioOffsetMs: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Thickness: {settings.thickness.toFixed(1)}</span>
-						<input type='range' min={1} max={14} step={0.5} value={settings.thickness} onChange={(event) => onSettingsChange({ ...settings, thickness: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Softness: {settings.softness.toFixed(2)}</span>
-						<input type='range' min={0} max={1} step={0.01} value={settings.softness} onChange={(event) => onSettingsChange({ ...settings, softness: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Fall Speed: {settings.fallSpeed.toFixed(1)}</span>
-						<input type='range' min={0.2} max={12} step={0.1} value={settings.fallSpeed} onChange={(event) => onSettingsChange({ ...settings, fallSpeed: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Rotation: {settings.rotationSpeed.toFixed(2)}x</span>
-						<input type='range' min={-4} max={4} step={0.02} value={settings.rotationSpeed} onChange={(event) => onSettingsChange({ ...settings, rotationSpeed: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Sensitivity: {settings.sensitivity.toFixed(2)}</span>
-						<input type='range' min={0.6} max={2} step={0.05} value={settings.sensitivity} onChange={(event) => onSettingsChange({ ...settings, sensitivity: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Radial boost: {settings.radialBoost.toFixed(2)}</span>
-						<input type='range' min={0} max={1.5} step={0.05} value={settings.radialBoost} onChange={(event) => onSettingsChange({ ...settings, radialBoost: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Glow: {settings.glow.toFixed(1)}</span>
-						<input type='range' min={0} max={40} step={0.05} value={settings.glow} onChange={(event) => onSettingsChange({ ...settings, glow: Number(event.target.value) })} />
-					</label>
-
-					<label className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Mirror</span>
-						<input type='checkbox' checked={settings.mirror} onChange={(event) => onSettingsChange({ ...settings, mirror: event.target.checked })} />
-					</label>
-
-					<label className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Small blocks</span>
-						<input type='checkbox' checked={settings.segmented} onChange={(event) => onSettingsChange({ ...settings, segmented: event.target.checked })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2 md:col-span-2'>
-						<span>Overlay Text</span>
-						<input
-							type='text'
-							value={settings.overlayText}
-							placeholder='Nhập chữ muốn hiển thị... '
-							onChange={(event) => onSettingsChange({ ...settings, overlayText: event.target.value })}
-							className='w-full rounded-md border border-white/10 bg-slate-900/70 p-1.5 text-slate-100'
-						/>
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text Size: {Math.round(settings.overlayTextSize)} px</span>
-						<input type='range' min={16} max={180} step={1} value={settings.overlayTextSize} onChange={(event) => onSettingsChange({ ...settings, overlayTextSize: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text Opacity: {settings.overlayTextOpacity.toFixed(2)}</span>
-						<input type='range' min={0} max={1} step={0.01} value={settings.overlayTextOpacity} onChange={(event) => onSettingsChange({ ...settings, overlayTextOpacity: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text X: {Math.round(settings.overlayTextX)} px</span>
-						<input type='range' min={-960} max={960} step={1} value={settings.overlayTextX} onChange={(event) => onSettingsChange({ ...settings, overlayTextX: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text Y: {Math.round(settings.overlayTextY)} px</span>
-						<input type='range' min={40} max={900} step={1} value={settings.overlayTextY} onChange={(event) => onSettingsChange({ ...settings, overlayTextY: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text Scale: {settings.overlayTextScale.toFixed(2)}x</span>
-						<input type='range' min={0.3} max={3} step={0.01} value={settings.overlayTextScale} onChange={(event) => onSettingsChange({ ...settings, overlayTextScale: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text Blur: {settings.overlayTextBlur.toFixed(1)} px</span>
-						<input type='range' min={0} max={20} step={0.1} value={settings.overlayTextBlur} onChange={(event) => onSettingsChange({ ...settings, overlayTextBlur: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text Wiggle: {settings.overlayTextWiggle.toFixed(1)} px</span>
-						<input type='range' min={0} max={80} step={0.5} value={settings.overlayTextWiggle} onChange={(event) => onSettingsChange({ ...settings, overlayTextWiggle: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text React Strength: {settings.overlayTextReactStrength.toFixed(2)}</span>
-						<input type='range' min={0} max={2} step={0.01} value={settings.overlayTextReactStrength} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactStrength: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text React Glow: {settings.overlayTextReactGlow.toFixed(2)}</span>
-						<input type='range' min={0} max={2} step={0.01} value={settings.overlayTextReactGlow} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactGlow: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text React Min: {settings.overlayTextReactMinHz} Hz</span>
-						<input type='range' min={0} max={20000} step={10} value={settings.overlayTextReactMinHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMinHz: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'>
-						<span>Text React Max: {settings.overlayTextReactMaxHz} Hz</span>
-						<input type='range' min={20} max={22000} step={10} value={settings.overlayTextReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMaxHz: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background Scale: {settings.backgroundScale.toFixed(2)}x</span>
-						<input type='range' min={0.6} max={2.2} step={0.01} value={settings.backgroundScale} onChange={(event) => onSettingsChange({ ...settings, backgroundScale: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background Blur: {settings.backgroundBlur.toFixed(1)} px</span>
-						<input type='range' min={0} max={20} step={0.1} value={settings.backgroundBlur} onChange={(event) => onSettingsChange({ ...settings, backgroundBlur: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background Wiggle: {settings.backgroundWiggle.toFixed(1)} px</span>
-						<input type='range' min={0} max={120} step={0.5} value={settings.backgroundWiggle} onChange={(event) => onSettingsChange({ ...settings, backgroundWiggle: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background X: {Math.round(settings.backgroundX)} px</span>
-						<input type='range' min={-960} max={960} step={1} value={settings.backgroundX} onChange={(event) => onSettingsChange({ ...settings, backgroundX: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background Y: {Math.round(settings.backgroundY)} px</span>
-						<input type='range' min={-540} max={540} step={1} value={settings.backgroundY} onChange={(event) => onSettingsChange({ ...settings, backgroundY: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background React Strength: {settings.backgroundReactStrength.toFixed(2)}</span>
-						<input type='range' min={0} max={0.8} step={0.01} value={settings.backgroundReactStrength} onChange={(event) => onSettingsChange({ ...settings, backgroundReactStrength: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background Glow: {settings.backgroundGlow.toFixed(2)}</span>
-						<input type='range' min={0} max={2} step={0.01} value={settings.backgroundGlow} onChange={(event) => onSettingsChange({ ...settings, backgroundGlow: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background React Min: {settings.backgroundReactMinHz} Hz</span>
-						<input type='range' min={0} max={20000} step={10} value={settings.backgroundReactMinHz} onChange={(event) => onSettingsChange({ ...settings, backgroundReactMinHz: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'>
-						<span>Background React Max: {settings.backgroundReactMaxHz} Hz</span>
-						<input type='range' min={20} max={22000} step={10} value={settings.backgroundReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, backgroundReactMaxHz: Number(event.target.value) })} />
-					</label>
-
-					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
-						<span>Color scheme</span>
-						<select
-							className='w-full rounded-md border border-white/10 bg-slate-900/70 p-1'
-							value={settings.colorScheme}
-							onChange={(event) => onSettingsChange({ ...settings, colorScheme: event.target.value as SpectrumColorScheme })}>
-							{SCHEMES.map((scheme) => (
-								<option key={scheme} value={scheme}>
-									{scheme}
-								</option>
-							))}
-						</select>
-					</label>
+					{activeTab === "text" && (
+						<div className='grid gap-3 md:grid-cols-2 lg:grid-cols-4'>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2 md:col-span-2'>
+								<span>Overlay Type</span>
+								<select className='w-full rounded-md border border-white/10 bg-slate-900/70 p-1.5' value={settings.overlayMode} onChange={(event) => onSettingsChange({ ...settings, overlayMode: event.target.value as SpectrumSettings["overlayMode"] })}>
+									<option value='text'>Text</option>
+									<option value='logo'>Logo image</option>
+								</select>
+							</label>
+							{settings.overlayMode === "text" && (
+								<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2 md:col-span-2'>
+									<span>Overlay Text</span>
+									<input type='text' value={settings.overlayText} placeholder='Nhập chữ muốn hiển thị...' onChange={(event) => onSettingsChange({ ...settings, overlayText: event.target.value })} className='w-full rounded-md border border-white/10 bg-slate-900/70 p-1.5 text-slate-100' />
+								</label>
+							)}
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>Size: {Math.round(settings.overlayTextSize)} px</span><input type='range' min={16} max={260} step={1} value={settings.overlayTextSize} onChange={(event) => onSettingsChange({ ...settings, overlayTextSize: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>Opacity: {settings.overlayTextOpacity.toFixed(2)}</span><input type='range' min={0} max={1} step={0.01} value={settings.overlayTextOpacity} onChange={(event) => onSettingsChange({ ...settings, overlayTextOpacity: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>X: {Math.round(settings.overlayTextX)} px</span><input type='range' min={-960} max={960} step={1} value={settings.overlayTextX} onChange={(event) => onSettingsChange({ ...settings, overlayTextX: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>Y: {Math.round(settings.overlayTextY)} px</span><input type='range' min={40} max={900} step={1} value={settings.overlayTextY} onChange={(event) => onSettingsChange({ ...settings, overlayTextY: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>Scale: {settings.overlayTextScale.toFixed(2)}x</span><input type='range' min={0.3} max={3} step={0.01} value={settings.overlayTextScale} onChange={(event) => onSettingsChange({ ...settings, overlayTextScale: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>Blur: {settings.overlayTextBlur.toFixed(1)} px</span><input type='range' min={0} max={20} step={0.1} value={settings.overlayTextBlur} onChange={(event) => onSettingsChange({ ...settings, overlayTextBlur: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>Wiggle: {settings.overlayTextWiggle.toFixed(1)} px</span><input type='range' min={0} max={80} step={0.5} value={settings.overlayTextWiggle} onChange={(event) => onSettingsChange({ ...settings, overlayTextWiggle: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Strength: {settings.overlayTextReactStrength.toFixed(2)}</span><input type='range' min={0} max={2} step={0.01} value={settings.overlayTextReactStrength} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactStrength: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Glow: {settings.overlayTextReactGlow.toFixed(2)}</span><input type='range' min={0} max={2} step={0.01} value={settings.overlayTextReactGlow} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactGlow: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Min: {settings.overlayTextReactMinHz} Hz</span><input type='range' min={0} max={20000} step={10} value={settings.overlayTextReactMinHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMinHz: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Max: {settings.overlayTextReactMaxHz} Hz</span><input type='range' min={20} max={22000} step={10} value={settings.overlayTextReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMaxHz: Number(event.target.value) })} /></label>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

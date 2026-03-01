@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
 	colorScheme: "sunset",
 	mirror: true,
 	overlayText: "",
+	overlayMode: "text",
 	overlayTextSize: 56,
 	overlayTextY: 180,
 	overlayTextOpacity: 0.9,
@@ -53,6 +54,7 @@ export function AudioVisualizer() {
 	const [audioFileName, setAudioFileName] = useState<string | null>(null);
 	const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
 	const [mode, setMode] = useState<VisualizationMode>("bars");
+	const [overlayLogo, setOverlayLogo] = useState<string | null>(null);
 	const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
 	const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
 
@@ -90,11 +92,27 @@ export function AudioVisualizer() {
 		});
 	}, []);
 
+	const loadOverlayLogo = useCallback((file: File) => {
+		const nextUrl = URL.createObjectURL(file);
+		setOverlayLogo((previous) => {
+			if (previous) URL.revokeObjectURL(previous);
+			return nextUrl;
+		});
+	}, []);
+
+	const removeOverlayLogo = useCallback(() => {
+		setOverlayLogo((previous) => {
+			if (previous) URL.revokeObjectURL(previous);
+			return null;
+		});
+	}, []);
+
 	useEffect(() => {
 		return () => {
 			if (backgroundImage) URL.revokeObjectURL(backgroundImage);
+			if (overlayLogo) URL.revokeObjectURL(overlayLogo);
 		};
-	}, [backgroundImage]);
+	}, [backgroundImage, overlayLogo]);
 
 	return (
 		<main className='relative h-screen w-full overflow-hidden text-slate-100'>
@@ -108,6 +126,7 @@ export function AudioVisualizer() {
 				onSeek={audio.seek}
 				bassIntensity={bassIntensity}
 				backgroundImage={backgroundImage}
+				overlayImage={overlayLogo}
 				onExportCanvasReady={setExportCanvas}
 				settings={settings}
 			/>
@@ -115,9 +134,12 @@ export function AudioVisualizer() {
 			<FileUpload
 				onAudioLoad={loadAudio}
 				onBackgroundLoad={loadBackground}
+				onOverlayLogoLoad={loadOverlayLogo}
 				backgroundImage={backgroundImage}
+				overlayLogo={overlayLogo}
 				audioFileName={audioFileName}
 				onRemoveBackground={removeBackground}
+				onRemoveOverlayLogo={removeOverlayLogo}
 			/>
 
 			<VideoExport
