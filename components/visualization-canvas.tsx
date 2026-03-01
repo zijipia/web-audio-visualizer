@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-export type VisualizationMode = "bars" | "waveform" | "circular";
+export type VisualizationMode = "bars" | "waveform" | "circular" | "ridgeReflection" | "dualLayerWave";
 export type SpectrumColorScheme = "sunset" | "neon" | "fire";
 
 export interface SpectrumSettings {
@@ -507,6 +507,142 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	ctx.restore();
 }
 
+function buildSpectrumEnvelope(data: Uint8Array, sampleRate: number, settings: SpectrumSettings, points: number) {
+	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
+	const rangeLength = Math.max(1, endIndex - startIndex);
+	const values = new Float32Array(points);
+
+	for (let i = 0; i < points; i += 1) {
+		const ratio = i / Math.max(1, points - 1);
+		const index = startIndex + Math.floor(ratio * Math.max(1, rangeLength - 1));
+		const raw = Math.min(1, ((data[index] ?? 0) / 255) * settings.sensitivity);
+		values[i] = Math.pow(raw, 1.5);
+	}
+
+	const smoothed = new Float32Array(points);
+	for (let i = 0; i < points; i += 1) {
+		let total = 0;
+		let weightSum = 0;
+		for (let offset = -3; offset <= 3; offset += 1) {
+			const idx = Math.max(0, Math.min(points - 1, i + offset));
+			const weight = 4 - Math.abs(offset);
+			total += values[idx] * weight;
+			weightSum += weight;
+		}
+		smoothed[i] = total / Math.max(1, weightSum);
+	}
+
+	return smoothed;
+}
+
+function drawRidgeReflection(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	const pointCount = Math.max(96, Math.floor(width / 18));
+	const envelope = buildSpectrumEnvelope(data, sampleRate, settings, pointCount);
+	const horizon = height * 0.62;
+	const amplitude = height * (0.08 + settings.maxHeight / 2000);
+
+	ctx.save();
+	ctx.lineJoin = "round";
+	ctx.lineCap = "round";
+	ctx.shadowColor = "rgba(255,255,255,0.65)";
+	ctx.shadowBlur = settings.glow * 1.2;
+
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	for (let i = 0; i < pointCount; i += 1) {
+		const x = (i / Math.max(1, pointCount - 1)) * width;
+		const y = horizon - envelope[i] * amplitude;
+		ctx.lineTo(x, y);
+	}
+	ctx.lineTo(width, horizon);
+	ctx.closePath();
+
+	const fill = ctx.createLinearGradient(0, horizon - amplitude, 0, horizon);
+	fill.addColorStop(0, "rgba(255,255,255,0.95)");
+	fill.addColorStop(1, "rgba(255,255,255,0.7)");
+	ctx.fillStyle = fill;
+	ctx.fill();
+
+	ctx.beginPath();
+	for (let i = 0; i < pointCount; i += 1) {
+		const x = (i / Math.max(1, pointCount - 1)) * width;
+		const y = horizon - envelope[i] * amplitude;
+		if (i === 0) ctx.moveTo(x, y);
+		else ctx.lineTo(x, y);
+	}
+	ctx.strokeStyle = "rgba(236, 240, 244, 0.95)";
+	ctx.lineWidth = Math.max(1.5, settings.thickness * 0.9);
+	ctx.stroke();
+
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	for (let i = 0; i < pointCount; i += 1) {
+		const x = (i / Math.max(1, pointCount - 1)) * width;
+		const y = horizon + envelope[i] * amplitude * 0.9;
+		ctx.lineTo(x, y);
+	}
+	ctx.lineTo(width, horizon + amplitude * 0.95);
+	ctx.lineTo(0, horizon + amplitude * 0.95);
+	ctx.closePath();
+
+	const reflection = ctx.createLinearGradient(0, horizon, 0, horizon + amplitude);
+	reflection.addColorStop(0, "rgba(241,245,249,0.35)");
+	reflection.addColorStop(1, "rgba(241,245,249,0)");
+	ctx.fillStyle = reflection;
+	ctx.fill();
+
+	ctx.strokeStyle = "rgba(248, 250, 252, 0.85)";
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	ctx.lineTo(width, horizon);
+	ctx.stroke();
+
+	ctx.restore();
+}
+
+function drawDualLayerWave(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	const pointCount = Math.max(120, Math.floor(width / 16));
+	const envelope = buildSpectrumEnvelope(data, sampleRate, settings, pointCount);
+	const horizon = height * 0.7;
+	const maxHeight = height * (0.1 + settings.maxHeight / 1800);
+
+	const drawLayer = (gain: number, fillStart: string, fillEnd: string) => {
+		ctx.beginPath();
+		ctx.moveTo(0, horizon);
+		for (let i = 0; i < pointCount; i += 1) {
+			const x = (i / Math.max(1, pointCount - 1)) * width;
+			const wave = Math.sin(i * 0.08 + performance.now() * 0.0012) * 0.06;
+			const y = horizon - (envelope[i] + wave) * maxHeight * gain;
+			ctx.lineTo(x, y);
+		}
+		ctx.lineTo(width, horizon);
+		ctx.closePath();
+
+		const fill = ctx.createLinearGradient(0, horizon - maxHeight, 0, horizon);
+		fill.addColorStop(0, fillStart);
+		fill.addColorStop(1, fillEnd);
+		ctx.fillStyle = fill;
+		ctx.fill();
+	};
+
+	ctx.save();
+	ctx.shadowBlur = settings.glow;
+	ctx.shadowColor = "rgba(34, 211, 238, 0.35)";
+
+	drawLayer(1, "rgba(255,255,255,0.98)", "rgba(255,255,255,0.9)");
+	drawLayer(0.75, "rgba(34,211,238,0.95)", "rgba(34,211,238,0.85)");
+
+	ctx.strokeStyle = "rgba(248,250,252,0.98)";
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	ctx.lineTo(width, horizon);
+	ctx.stroke();
+
+	ctx.restore();
+}
+
 function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number, textReact: number) {
 	const text = settings.overlayText.trim();
 	if (!text) return;
@@ -705,6 +841,10 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
 				} else if (mode === "waveform") {
 					drawWaveform(ctx, timeData, width, height, settings);
+				} else if (mode === "ridgeReflection") {
+					drawRidgeReflection(ctx, frequencyData, width, height, sampleRate, settings);
+				} else if (mode === "dualLayerWave") {
+					drawDualLayerWave(ctx, frequencyData, width, height, sampleRate, settings);
 				} else {
 					drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
 				}

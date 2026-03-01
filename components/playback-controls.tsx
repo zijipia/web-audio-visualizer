@@ -25,6 +25,8 @@ const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
 	{ id: "bars", icon: <BarChart3 size={16} />, label: "Bars" },
 	{ id: "waveform", icon: <Waves size={16} />, label: "Waveform" },
 	{ id: "circular", icon: <Circle size={16} />, label: "Circular" },
+	{ id: "ridgeReflection", icon: <Waves size={16} />, label: "Ridge Reflection" },
+	{ id: "dualLayerWave", icon: <Waves size={16} />, label: "Dual Layer Wave" },
 ];
 
 const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire"];
