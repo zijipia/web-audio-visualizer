@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BassPulseBackground } from "@/components/bass-pulse-background";
 import { FileUpload } from "@/components/file-upload";
 import { PlaybackControls } from "@/components/playback-controls";
 import { VideoExport } from "@/components/video-export";
@@ -35,6 +34,9 @@ export function AudioVisualizer() {
 	const [mode, setMode] = useState<VisualizationMode>("bars");
 	const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
 	const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
+	const [overlayText, setOverlayText] = useState("");
+	const [overlayTextColor, setOverlayTextColor] = useState("#ffffff");
+	const [overlayTextSize, setOverlayTextSize] = useState(48);
 
 	const bassIntensity = useMemo(() => {
 		if (!audio.frequencyData.length) return 0;
@@ -78,11 +80,6 @@ export function AudioVisualizer() {
 
 	return (
 		<main className='relative h-screen w-full overflow-hidden text-slate-100'>
-			<BassPulseBackground
-				bassIntensity={bassIntensity}
-				backgroundImage={backgroundImage}
-			/>
-
 			<VisualizationCanvas
 				frequencyData={audio.frequencyData}
 				timeData={audio.timeData}
@@ -91,8 +88,13 @@ export function AudioVisualizer() {
 				duration={audio.state.duration}
 				currentTime={audio.state.currentTime}
 				onSeek={audio.seek}
+				bassIntensity={bassIntensity}
+				backgroundImage={backgroundImage}
 				onExportCanvasReady={setExportCanvas}
 				settings={settings}
+				overlayText={overlayText}
+				overlayTextColor={overlayTextColor}
+				overlayTextSize={overlayTextSize}
 			/>
 
 			<FileUpload
@@ -105,10 +107,30 @@ export function AudioVisualizer() {
 
 			<VideoExport
 				exportCanvas={exportCanvas}
-				recordingAudioStream={audio.getRecordingStream()}
+				renderAudioStream={audio.getRecordingStream()}
 				duration={audio.state.duration}
 				currentTime={audio.state.currentTime}
+				audioElement={audio.audioElement}
+				onSeek={audio.seek}
+				onPlay={audio.play}
+				onPause={audio.pause}
 			/>
+
+			<div className='pointer-events-auto fixed left-3 top-3 z-30 w-[min(320px,calc(100vw-1.5rem))] rounded-2xl border border-white/10 bg-slate-950/40 p-3 backdrop-blur-xl'>
+				<h2 className='mb-2 text-sm font-semibold text-slate-100'>Text Overlay</h2>
+				<input
+					type='text'
+					value={overlayText}
+					onChange={(event) => setOverlayText(event.target.value)}
+					placeholder='Nhập chữ muốn hiển thị...'
+					className='w-full rounded-lg border border-white/15 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50'
+				/>
+				<div className='mt-2 flex items-center gap-2'>
+					<input type='color' value={overlayTextColor} onChange={(event) => setOverlayTextColor(event.target.value)} className='h-8 w-10 rounded border border-white/20 bg-transparent p-0' />
+					<input type='range' min={18} max={120} value={overlayTextSize} onChange={(event) => setOverlayTextSize(Number(event.target.value))} className='w-full'/>
+					<span className='w-10 text-right text-xs text-slate-300'>{overlayTextSize}px</span>
+				</div>
+			</div>
 
 			<PlaybackControls
 				isPlaying={audio.state.isPlaying}
