@@ -26,6 +26,29 @@ export interface SpectrumSettings {
 	overlayTextSize: number;
 	overlayTextY: number;
 	overlayTextOpacity: number;
+	textReactMinFrequency: number;
+	textReactMaxFrequency: number;
+	textReactStrength: number;
+	textBaseScale: number;
+	textScaleReactAmount: number;
+	textBaseBlur: number;
+	textBlurReactAmount: number;
+	textWiggleAmount: number;
+	textWiggleSpeed: number;
+	textPositionX: number;
+	textPositionY: number;
+	textReactOffsetX: number;
+	textReactOffsetY: number;
+	backgroundReactMinFrequency: number;
+	backgroundReactMaxFrequency: number;
+	backgroundReactStrength: number;
+	backgroundBaseScale: number;
+	backgroundScaleReactAmount: number;
+	backgroundBaseBlur: number;
+	backgroundBlurReactAmount: number;
+	backgroundGlowStrength: number;
+	backgroundWiggleAmount: number;
+	backgroundWiggleSpeed: number;
 }
 
 interface Particle {
@@ -66,6 +89,24 @@ function resolveFrequencyRange(data: Uint8Array, sampleRate: number, settings: S
 	};
 }
 
+function getFrequencyEnergy(data: Uint8Array, sampleRate: number, minFrequency: number, maxFrequency: number, strength = 1) {
+	if (!data.length) return 0;
+
+	const nyquist = sampleRate / 2;
+	const boundedMin = Math.max(0, Math.min(minFrequency, nyquist));
+	const boundedMax = Math.max(boundedMin + 1, Math.min(maxFrequency, nyquist));
+
+	const startIndex = Math.floor((boundedMin / nyquist) * data.length);
+	const endIndex = Math.max(startIndex + 1, Math.floor((boundedMax / nyquist) * data.length));
+	const safeEnd = Math.min(data.length, endIndex);
+
+	let sum = 0;
+	for (let i = startIndex; i < safeEnd; i += 1) sum += data[i] ?? 0;
+
+	const average = sum / Math.max(1, safeEnd - startIndex);
+	return Math.min(1, (average / 255) * Math.max(0, strength));
+}
+
 function createGradient(ctx: CanvasRenderingContext2D, width: number, height: number, scheme: SpectrumColorScheme) {
 	const gradient = ctx.createLinearGradient(0, 0, width, height);
 
@@ -94,27 +135,35 @@ function drawBackground(
 	width: number,
 	height: number,
 	bassIntensity: number,
+	backgroundReactIntensity: number,
 	bgImage: HTMLImageElement | null,
 	smoothBassRef: { current: number },
 	particles: Particle[],
 	deltaMs: number,
+	nowMs: number,
+	settings: SpectrumSettings,
 ) {
 	smoothBassRef.current += (bassIntensity - smoothBassRef.current) * 0.12;
 	const smoothBass = smoothBassRef.current;
+	const reactivity = Math.max(0, Math.min(1, backgroundReactIntensity));
+	const wobble = Math.sin(nowMs * settings.backgroundWiggleSpeed * 0.001);
+	const wobbleX = settings.backgroundWiggleAmount * 18 * wobble * (0.4 + reactivity * 0.6);
+	const wobbleY = settings.backgroundWiggleAmount * 14 * Math.cos(nowMs * settings.backgroundWiggleSpeed * 0.0014) * (0.4 + reactivity * 0.6);
 
 	ctx.save();
 	ctx.fillStyle = "#050812";
 	ctx.fillRect(0, 0, width, height);
 
 	if (bgImage) {
-		const scale = 1.08 + smoothBass * 0.1;
+		const scale = Math.max(0.4, settings.backgroundBaseScale + reactivity * settings.backgroundScaleReactAmount + smoothBass * 0.1);
 		const drawWidth = width * scale;
 		const drawHeight = height * scale;
-		const x = (width - drawWidth) / 2;
-		const y = (height - drawHeight) / 2;
+		const x = (width - drawWidth) / 2 + wobbleX;
+		const y = (height - drawHeight) / 2 + wobbleY;
+		const blur = Math.max(0, settings.backgroundBaseBlur + reactivity * settings.backgroundBlurReactAmount);
 
 		ctx.globalAlpha = 0.56 + smoothBass * 0.18;
-		ctx.filter = `brightness(${0.5 + smoothBass * 0.35}) saturate(${1.05 + smoothBass * 0.35})`;
+		ctx.filter = `brightness(${0.5 + smoothBass * 0.35 + reactivity * 0.2}) saturate(${1.05 + smoothBass * 0.35 + reactivity * 0.15}) blur(${blur.toFixed(2)}px)`;
 		ctx.drawImage(bgImage, x, y, drawWidth, drawHeight);
 		ctx.filter = "none";
 		ctx.globalAlpha = 1;
@@ -130,13 +179,22 @@ function drawBackground(
 	ctx.fillStyle = `rgba(5, 8, 18, ${0.52 - smoothBass * 0.24})`;
 	ctx.fillRect(0, 0, width, height);
 
-	const pulse = ctx.createRadialGradient(width * 0.5, height * 0.45, width * 0.08, width * 0.5, height * 0.45, width * 0.7);
+	const pulse = ctx.createRadialGradient(width * 0.5 + wobbleX * 0.3, height * 0.45 + wobbleY * 0.3, width * 0.08, width * 0.5 + wobbleX * 0.3, height * 0.45 + wobbleY * 0.3, width * 0.7);
 	pulse.addColorStop(0, `rgba(251, 146, 60, ${0.14 + smoothBass * 0.35})`);
 	pulse.addColorStop(0.3, `rgba(245, 158, 11, ${0.09 + smoothBass * 0.2})`);
 	pulse.addColorStop(0.8, "rgba(2, 132, 199, 0.04)");
 	pulse.addColorStop(1, "rgba(2, 132, 199, 0)");
 	ctx.fillStyle = pulse;
 	ctx.fillRect(0, 0, width, height);
+
+	if (settings.backgroundGlowStrength > 0) {
+		const glow = Math.max(0, settings.backgroundGlowStrength * (0.35 + reactivity * 1.4));
+		ctx.fillStyle = `rgba(34, 211, 238, ${0.03 + glow * 0.02})`;
+		ctx.shadowColor = "rgba(34,211,238,0.8)";
+		ctx.shadowBlur = 18 + glow * 12;
+		ctx.fillRect(width * 0.2, height * 0.2, width * 0.6, height * 0.6);
+		ctx.shadowBlur = 0;
+	}
 
 	const spawnCount = Math.floor((deltaMs / 16.67) * (0.5 + smoothBass * 2.2));
 	for (let i = 0; i < spawnCount; i += 1) {
@@ -324,23 +382,34 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 }
 
 
-function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number) {
+function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number, textReactIntensity: number, nowMs: number) {
 	const text = settings.overlayText.trim();
 	if (!text) return;
 
 	const size = Math.max(16, settings.overlayTextSize);
-	const y = Math.max(40, Math.min(height - 24, settings.overlayTextY));
+	const y = Math.max(24, Math.min(height - 24, settings.textPositionY));
+	const x = Math.max(24, Math.min(width - 24, settings.textPositionX));
 	const alpha = Math.max(0, Math.min(1, settings.overlayTextOpacity));
-	const pulse = 0.82 + bassIntensity * 0.3;
+	const reactivity = Math.max(0, Math.min(1, textReactIntensity));
+	const pulse = 0.82 + bassIntensity * 0.3 + reactivity * 0.25;
+	const scale = Math.max(0.2, settings.textBaseScale + reactivity * settings.textScaleReactAmount);
+	const blur = Math.max(0, settings.textBaseBlur + reactivity * settings.textBlurReactAmount);
+	const wiggleX = Math.sin(nowMs * settings.textWiggleSpeed * 0.001) * settings.textWiggleAmount * (6 + reactivity * 18);
+	const wiggleY = Math.cos(nowMs * settings.textWiggleSpeed * 0.0015) * settings.textWiggleAmount * (4 + reactivity * 14);
+	const reactOffsetX = settings.textReactOffsetX * reactivity;
+	const reactOffsetY = settings.textReactOffsetY * reactivity;
 
 	ctx.save();
 	ctx.font = `700 ${size}px Inter, system-ui, sans-serif`;
 	ctx.textAlign = "center";
 	ctx.textBaseline = "middle";
-	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4})`;
-	ctx.shadowBlur = 14 + bassIntensity * 24;
+	ctx.translate(x + wiggleX + reactOffsetX, y + wiggleY + reactOffsetY);
+	ctx.scale(scale, scale);
+	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4 + reactivity * 0.35})`;
+	ctx.shadowBlur = 14 + bassIntensity * 24 + reactivity * 32;
+	ctx.filter = `blur(${blur.toFixed(2)}px)`;
 	ctx.fillStyle = `rgba(241, 245, 249, ${alpha * pulse})`;
-	ctx.fillText(text, width / 2, y);
+	ctx.fillText(text, 0, 0);
 	ctx.restore();
 }
 
@@ -415,10 +484,36 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 			const now = performance.now();
 			const deltaMs = Math.max(1, now - lastFrameTimeRef.current);
 			lastFrameTimeRef.current = now;
+			const textReactIntensity = getFrequencyEnergy(
+				frequencyData,
+				sampleRate,
+				settings.textReactMinFrequency,
+				settings.textReactMaxFrequency,
+				settings.textReactStrength,
+			);
+			const backgroundReactIntensity = getFrequencyEnergy(
+				frequencyData,
+				sampleRate,
+				settings.backgroundReactMinFrequency,
+				settings.backgroundReactMaxFrequency,
+				settings.backgroundReactStrength,
+			);
 
 			const draw = (ctx: CanvasRenderingContext2D, width: number, height: number, particles: Particle[]) => {
 				ctx.clearRect(0, 0, width, height);
-				drawBackground(ctx, width, height, bassIntensity, imageRef.current, smoothBassRef, particles, deltaMs);
+				drawBackground(
+					ctx,
+					width,
+					height,
+					bassIntensity,
+					backgroundReactIntensity,
+					imageRef.current,
+					smoothBassRef,
+					particles,
+					deltaMs,
+					now,
+					settings,
+				);
 
 				if (mode === "bars") {
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
@@ -433,7 +528,7 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
 				const effectiveTime = Math.max(0, currentTime - offsetSec);
 
-				drawOverlayText(ctx, width, height, settings, bassIntensity);
+				drawOverlayText(ctx, width, height, settings, bassIntensity, textReactIntensity, now);
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
