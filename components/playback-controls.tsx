@@ -30,6 +30,49 @@ const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
 const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire"];
 type SettingsTab = "audio" | "background" | "text";
 
+const SPECTRUM_SAMPLE = `// Audio spectrum extension
+// Available API: ctx, width, height, frequencyData, timeData, sampleRate,
+// bassIntensity, textReact, backgroundReact, currentTime, duration, settings,
+// mode, defaultDraw(), skipDefault()
+
+api.defaultDraw();
+
+// Example glow pulse on beat
+const alpha = 0.08 + api.bassIntensity * 0.2;
+api.ctx.fillStyle = \`rgba(34, 211, 238, \${alpha})\`;
+api.ctx.fillRect(0, 0, api.width, api.height);
+`;
+
+const BACKGROUND_SAMPLE = `// Background extension
+api.defaultDraw();
+
+// Add custom vignette reacting to low frequencies
+const react = api.backgroundReact;
+const gradient = api.ctx.createRadialGradient(
+  api.width * 0.5,
+  api.height * 0.5,
+  api.width * 0.1,
+  api.width * 0.5,
+  api.height * 0.5,
+  api.width * 0.75
+);
+gradient.addColorStop(0, \`rgba(255, 255, 255, \${0.02 + react * 0.08})\`);
+gradient.addColorStop(1, \`rgba(0, 0, 0, \${0.2 + react * 0.2})\`);
+api.ctx.fillStyle = gradient;
+api.ctx.fillRect(0, 0, api.width, api.height);
+`;
+
+const TEXT_SAMPLE = `// Text / logo extension
+api.defaultDraw();
+
+// Draw timestamp in corner
+api.ctx.save();
+api.ctx.fillStyle = "rgba(255,255,255,0.85)";
+api.ctx.font = "500 18px Inter, system-ui, sans-serif";
+api.ctx.fillText(\`Time: \${Math.floor(api.currentTime)}s\`, 24, api.height - 24);
+api.ctx.restore();
+`;
+
 export function PlaybackControls({ isPlaying, currentTime, duration, volume, isLoading, mode, settings, onSettingsChange, onModeChange, onPlay, onPause, onSeek, onVolumeChange }: PlaybackControlsProps) {
 	const [showSettings, setShowSettings] = useState(false);
 	const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
@@ -43,6 +86,36 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 
 	const tabButtonClass = (tab: SettingsTab) =>
 		`rounded-lg px-3 py-1.5 text-xs transition ${activeTab === tab ? "bg-cyan-500 text-white" : "text-slate-200 hover:bg-white/10"}`;
+
+	const extensionEditor = (label: string, value: string, sample: string, key: "extensionSpectrumCode" | "extensionBackgroundCode" | "extensionTextCode") => (
+		<label className='space-y-1 rounded-lg border border-violet-400/30 bg-violet-500/5 p-2'>
+			<div className='flex items-center justify-between gap-2'>
+				<span>{label}</span>
+				<div className='flex items-center gap-1'>
+					<button
+						type='button'
+						onClick={() => onSettingsChange({ ...settings, [key]: sample })}
+						className='rounded bg-violet-500/30 px-2 py-1 text-[11px] text-violet-100 hover:bg-violet-500/40'>
+						Load sample
+					</button>
+					<button
+						type='button'
+						onClick={() => onSettingsChange({ ...settings, [key]: "" })}
+						className='rounded bg-white/10 px-2 py-1 text-[11px] text-slate-100 hover:bg-white/20'>
+						Clear
+					</button>
+				</div>
+			</div>
+			<textarea
+				value={value}
+				onChange={(event) => onSettingsChange({ ...settings, [key]: event.target.value })}
+				rows={11}
+				spellCheck={false}
+				className='w-full rounded-md border border-white/10 bg-slate-950/80 p-2 font-mono text-[11px] text-violet-100'
+				placeholder='Write JS code. Use api.defaultDraw() to keep current effect.'
+			/>
+		</label>
+	);
 
 	return (
 		<div className='fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl md:inset-x-8'>
@@ -169,6 +242,16 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Max: {settings.overlayTextReactMaxHz} Hz</span><input type='range' min={20} max={22000} step={10} value={settings.overlayTextReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMaxHz: Number(event.target.value) })} /></label>
 						</div>
 					)}
+
+					<div className='mt-3 rounded-lg border border-violet-300/20 bg-violet-500/5 p-3 text-[11px] text-violet-100/90'>
+						<div className='mb-2 font-semibold'>Extension (custom code)</div>
+						<p className='mb-2 text-violet-100/80'>Bạn có thể code thêm cho audio spectrum / background / text. Mỗi editor nhận object <code>api</code>; dùng <code>api.defaultDraw()</code> để giữ hiệu ứng mặc định, hoặc <code>api.skipDefault()</code> để tự vẽ hoàn toàn.</p>
+						<div className='grid gap-3 lg:grid-cols-3'>
+							{extensionEditor("Spectrum script", settings.extensionSpectrumCode, SPECTRUM_SAMPLE, "extensionSpectrumCode")}
+							{extensionEditor("Background script", settings.extensionBackgroundCode, BACKGROUND_SAMPLE, "extensionBackgroundCode")}
+							{extensionEditor("Text/Logo script", settings.extensionTextCode, TEXT_SAMPLE, "extensionTextCode")}
+						</div>
+					</div>
 				</div>
 			)}
 		</div>

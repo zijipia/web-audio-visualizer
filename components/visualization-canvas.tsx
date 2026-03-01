@@ -44,6 +44,29 @@ export interface SpectrumSettings {
 	backgroundGlow: number;
 	backgroundReactMinHz: number;
 	backgroundReactMaxHz: number;
+	extensionSpectrumCode: string;
+	extensionBackgroundCode: string;
+	extensionTextCode: string;
+}
+
+type ExtensionLayer = "background" | "spectrum" | "text";
+
+interface ExtensionApi {
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	height: number;
+	frequencyData: Uint8Array;
+	timeData: Uint8Array;
+	sampleRate: number;
+	bassIntensity: number;
+	textReact: number;
+	backgroundReact: number;
+	currentTime: number;
+	duration: number;
+	settings: SpectrumSettings;
+	mode: VisualizationMode;
+	defaultDraw: () => void;
+	skipDefault: () => void;
 }
 
 interface Particle {
@@ -444,6 +467,30 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 	const overlayImageRef = useRef<HTMLImageElement | null>(null);
 	const screenParticlesRef = useRef<Particle[]>([]);
 	const exportParticlesRef = useRef<Particle[]>([]);
+	const extensionErrorsRef = useRef<Record<ExtensionLayer, string | null>>({
+		background: null,
+		spectrum: null,
+		text: null,
+	});
+
+	const compileExtension = (code: string, layer: ExtensionLayer) => {
+		const trimmed = code.trim();
+		if (!trimmed) return null;
+
+		try {
+			// User writes plain JS body. Example: api.defaultDraw();
+			const fn = new Function("api", `"use strict";\n${trimmed}`) as (api: ExtensionApi) => void;
+			extensionErrorsRef.current[layer] = null;
+			return fn;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Unknown extension compile error";
+			if (extensionErrorsRef.current[layer] !== message) {
+				extensionErrorsRef.current[layer] = message;
+				console.error(`[extension:${layer}] ${message}`);
+			}
+			return null;
+		}
+	};
 
 	useEffect(() => {
 		if (!backgroundImage) {
@@ -488,6 +535,9 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 		if (!context || !exportContext) return;
 
 		let frame = 0;
+		const backgroundExtension = compileExtension(settings.extensionBackgroundCode, "background");
+		const spectrumExtension = compileExtension(settings.extensionSpectrumCode, "spectrum");
+		const textExtension = compileExtension(settings.extensionTextCode, "text");
 
 		const renderFrame = () => {
 			const dpr = window.devicePixelRatio || 1;
@@ -522,26 +572,75 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 					settings.sensitivity,
 				);
 
-				drawBackground(ctx, width, height, bassIntensity, backgroundReact, imageRef.current, settings, smoothBassRef, particles, deltaMs);
+				const baseApi = {
+					ctx,
+					width,
+					height,
+					frequencyData,
+					timeData,
+					sampleRate,
+					bassIntensity,
+					textReact,
+					backgroundReact,
+					currentTime,
+					duration,
+					settings,
+					mode,
+				};
 
-				if (mode === "bars") {
-					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
-				} else if (mode === "waveform") {
-					drawWaveform(ctx, timeData, width, height, settings);
-				} else {
-					drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
-				}
+				const runLayer = (layer: ExtensionLayer, extension: ((api: ExtensionApi) => void) | null, defaultDraw: () => void) => {
+					let skipped = false;
+					const api: ExtensionApi = {
+						...baseApi,
+						defaultDraw,
+						skipDefault: () => {
+							skipped = true;
+						},
+					};
+
+					if (extension) {
+						try {
+							extension(api);
+						} catch (error) {
+							const message = error instanceof Error ? error.message : "Unknown extension runtime error";
+							if (extensionErrorsRef.current[layer] !== message) {
+								extensionErrorsRef.current[layer] = message;
+								console.error(`[extension:${layer}] ${message}`);
+							}
+							defaultDraw();
+							return;
+						}
+					}
+
+					if (!extension || !skipped) defaultDraw();
+				};
+
+				runLayer("background", backgroundExtension, () => {
+					drawBackground(ctx, width, height, bassIntensity, backgroundReact, imageRef.current, settings, smoothBassRef, particles, deltaMs);
+				});
+
+				runLayer("spectrum", spectrumExtension, () => {
+					if (mode === "bars") {
+						drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
+					} else if (mode === "waveform") {
+						drawWaveform(ctx, timeData, width, height, settings);
+					} else {
+						drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
+					}
+				});
 
 				const offsetSec = Math.max(0, settings.audioOffsetMs / 1000);
 				const preferredDuration = settings.audioDurationMs > 0 ? settings.audioDurationMs / 1000 : duration;
 				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
 				const effectiveTime = Math.max(0, currentTime - offsetSec);
 
-				if (settings.overlayMode === "logo") {
-					drawOverlayLogo(ctx, width, height, settings, bassIntensity, textReact, overlayImageRef.current);
-				} else {
-					drawOverlayText(ctx, width, height, settings, bassIntensity, textReact);
-				}
+				runLayer("text", textExtension, () => {
+					if (settings.overlayMode === "logo") {
+						drawOverlayLogo(ctx, width, height, settings, bassIntensity, textReact, overlayImageRef.current);
+					} else {
+						drawOverlayText(ctx, width, height, settings, bassIntensity, textReact);
+					}
+				});
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
