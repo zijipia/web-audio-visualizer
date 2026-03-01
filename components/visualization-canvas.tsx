@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-export type VisualizationMode = "bars" | "waveform" | "circular";
+export type VisualizationMode = "bars" | "waveform" | "circular" | "reflective" | "layered-wave";
 export type SpectrumColorScheme = "sunset" | "neon" | "fire";
 
 export interface SpectrumSettings {
@@ -507,6 +507,182 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	ctx.restore();
 }
 
+function drawReflectiveSpectrum(
+	ctx: CanvasRenderingContext2D,
+	data: Uint8Array,
+	width: number,
+	height: number,
+	sampleRate: number,
+	settings: SpectrumSettings,
+) {
+	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
+	const count = Math.max(64, Math.min(320, settings.frequencyBands * 2));
+	const usableLength = Math.max(1, endIndex - startIndex);
+	const baseline = height * 0.58;
+	const maxAmp = height * Math.max(0.1, settings.maxHeight / 1300);
+
+	ctx.fillStyle = "rgba(8,13,30,0.18)";
+	ctx.fillRect(0, 0, width, height);
+
+	const samples = new Array<number>(count).fill(0);
+	for (let i = 0; i < count; i += 1) {
+		const sourceIndex = startIndex + Math.floor((i / count) * (usableLength - 1));
+		const energy = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
+		samples[i] = Math.pow(energy, 1.45);
+	}
+
+	const smooth = new Array<number>(count).fill(0);
+	for (let i = 0; i < count; i += 1) {
+		const left = samples[Math.max(0, i - 1)] ?? 0;
+		const mid = samples[i] ?? 0;
+		const right = samples[Math.min(count - 1, i + 1)] ?? 0;
+		smooth[i] = left * 0.22 + mid * 0.56 + right * 0.22;
+	}
+
+	const topStroke = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline);
+	topStroke.addColorStop(0, "rgba(255,255,255,0.9)");
+	topStroke.addColorStop(1, "rgba(225,232,240,0.85)");
+
+	const topFill = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline);
+	topFill.addColorStop(0, "rgba(255,255,255,0.92)");
+	topFill.addColorStop(1, "rgba(230,236,246,0.82)");
+
+	ctx.beginPath();
+	ctx.moveTo(0, baseline);
+	for (let i = 0; i < count; i += 1) {
+		const x = (i / (count - 1)) * width;
+		const amp = (smooth[i] ?? 0) * maxAmp;
+		const y = baseline - amp;
+		ctx.lineTo(x, y);
+	}
+	ctx.lineTo(width, baseline);
+	ctx.closePath();
+	ctx.fillStyle = topFill;
+	ctx.fill();
+
+	ctx.beginPath();
+	for (let i = 0; i < count; i += 1) {
+		const x = (i / (count - 1)) * width;
+		const amp = (smooth[i] ?? 0) * maxAmp;
+		const y = baseline - amp;
+		if (i === 0) ctx.moveTo(x, y);
+		else ctx.lineTo(x, y);
+	}
+	ctx.strokeStyle = topStroke;
+	ctx.lineWidth = Math.max(2, settings.thickness * 0.7);
+	ctx.shadowColor = "rgba(255,255,255,0.6)";
+	ctx.shadowBlur = settings.glow * 0.8;
+	ctx.stroke();
+
+	ctx.strokeStyle = "rgba(247,250,255,0.95)";
+	ctx.lineWidth = 2;
+	ctx.shadowBlur = 0;
+	ctx.beginPath();
+	ctx.moveTo(0, baseline);
+	ctx.lineTo(width, baseline);
+	ctx.stroke();
+
+	ctx.save();
+	ctx.beginPath();
+	ctx.rect(0, baseline, width, height - baseline);
+	ctx.clip();
+	ctx.translate(0, baseline * 2);
+	ctx.scale(1, -1);
+
+	ctx.beginPath();
+	ctx.moveTo(0, baseline);
+	for (let i = 0; i < count; i += 1) {
+		const x = (i / (count - 1)) * width;
+		const amp = (smooth[i] ?? 0) * maxAmp;
+		const y = baseline - amp;
+		ctx.lineTo(x, y);
+	}
+	ctx.lineTo(width, baseline);
+	ctx.closePath();
+
+	const reflection = ctx.createLinearGradient(0, baseline - maxAmp, 0, baseline + maxAmp * 1.7);
+	reflection.addColorStop(0, "rgba(255,255,255,0.42)");
+	reflection.addColorStop(0.45, "rgba(235,241,250,0.2)");
+	reflection.addColorStop(1, "rgba(229,235,245,0)");
+	ctx.fillStyle = reflection;
+	ctx.filter = "blur(5px)";
+	ctx.fill();
+	ctx.restore();
+	ctx.filter = "none";
+}
+
+function drawLayeredWaveSpectrum(
+	ctx: CanvasRenderingContext2D,
+	data: Uint8Array,
+	width: number,
+	height: number,
+	sampleRate: number,
+	settings: SpectrumSettings,
+) {
+	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
+	const count = Math.max(56, Math.min(220, settings.frequencyBands));
+	const usableLength = Math.max(1, endIndex - startIndex);
+	const baseline = height * 0.72;
+	const maxAmp = height * Math.max(0.08, settings.maxHeight / 1550);
+
+	ctx.fillStyle = "rgba(9,14,36,0.12)";
+	ctx.fillRect(0, 0, width, height);
+
+	const primary = new Array<number>(count).fill(0);
+	for (let i = 0; i < count; i += 1) {
+		const sourceIndex = startIndex + Math.floor((i / count) * (usableLength - 1));
+		const energy = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
+		primary[i] = Math.pow(energy, 1.15);
+	}
+
+	const smooth = new Array<number>(count).fill(0);
+	for (let i = 0; i < count; i += 1) {
+		const prev = primary[Math.max(0, i - 2)] ?? 0;
+		const left = primary[Math.max(0, i - 1)] ?? 0;
+		const mid = primary[i] ?? 0;
+		const right = primary[Math.min(count - 1, i + 1)] ?? 0;
+		smooth[i] = prev * 0.12 + left * 0.2 + mid * 0.44 + right * 0.24;
+	}
+
+	const layerConfigs = [
+		{ amp: maxAmp * 1.15, phase: 0.3, alpha: 0.97, fill: "rgba(255,255,255,0.95)" },
+		{ amp: maxAmp * 0.72, phase: 1.05, alpha: 0.78, fill: "rgba(34,211,238,0.92)" },
+	] as const;
+
+	for (const layer of layerConfigs) {
+		ctx.beginPath();
+		ctx.moveTo(0, baseline);
+
+		for (let i = 0; i < count; i += 1) {
+			const x = (i / (count - 1)) * width;
+			const wobble = Math.sin((i / count) * Math.PI * 4 + performance.now() * 0.00085 + layer.phase) * layer.amp * 0.18;
+			const y = baseline - (smooth[i] ?? 0) * layer.amp - wobble;
+			ctx.lineTo(x, y);
+		}
+
+		ctx.lineTo(width, baseline);
+		ctx.closePath();
+		ctx.globalAlpha = layer.alpha;
+		ctx.fillStyle = layer.fill;
+		ctx.fill();
+	}
+
+	ctx.globalAlpha = 1;
+	ctx.beginPath();
+	for (let i = 0; i < count; i += 1) {
+		const x = (i / (count - 1)) * width;
+		const y = baseline - (smooth[i] ?? 0) * layerConfigs[0].amp;
+		if (i === 0) ctx.moveTo(x, y);
+		else ctx.lineTo(x, y);
+	}
+	ctx.strokeStyle = "rgba(255,255,255,0.9)";
+	ctx.lineWidth = Math.max(2, settings.thickness * 0.72);
+	ctx.shadowColor = "rgba(255,255,255,0.35)";
+	ctx.shadowBlur = settings.glow * 0.9;
+	ctx.stroke();
+	ctx.shadowBlur = 0;
+}
+
 function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number, textReact: number) {
 	const text = settings.overlayText.trim();
 	if (!text) return;
@@ -705,6 +881,10 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
 				} else if (mode === "waveform") {
 					drawWaveform(ctx, timeData, width, height, settings);
+				} else if (mode === "reflective") {
+					drawReflectiveSpectrum(ctx, frequencyData, width, height, sampleRate, settings);
+				} else if (mode === "layered-wave") {
+					drawLayeredWaveSpectrum(ctx, frequencyData, width, height, sampleRate, settings);
 				} else {
 					drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
 				}
