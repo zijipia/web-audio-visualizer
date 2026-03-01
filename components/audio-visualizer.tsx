@@ -28,6 +28,23 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
 	overlayTextSize: 56,
 	overlayTextY: 180,
 	overlayTextOpacity: 0.9,
+	overlayTextX: 0,
+	overlayTextScale: 1,
+	overlayTextBlur: 0,
+	overlayTextWiggle: 8,
+	overlayTextReactStrength: 0.45,
+	overlayTextReactGlow: 0.55,
+	overlayTextReactMinHz: 120,
+	overlayTextReactMaxHz: 2400,
+	backgroundScale: 1.08,
+	backgroundBlur: 0,
+	backgroundWiggle: 10,
+	backgroundX: 0,
+	backgroundY: 0,
+	backgroundReactStrength: 0.12,
+	backgroundGlow: 0.4,
+	backgroundReactMinHz: 20,
+	backgroundReactMaxHz: 220,
 };
 
 export function AudioVisualizer() {
