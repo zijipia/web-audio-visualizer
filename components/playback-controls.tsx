@@ -4,6 +4,7 @@ import { AudioLines, BarChart3, Circle, Pause, Play, SlidersHorizontal, Volume2,
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { SpectrumColorScheme, SpectrumSettings, VisualizationMode } from "./visualization-canvas";
+import type { AudioBands } from "@/hooks/use-audio-context";
 
 interface PlaybackControlsProps {
 	isPlaying: boolean;
@@ -11,6 +12,7 @@ interface PlaybackControlsProps {
 	duration: number;
 	volume: number;
 	isLoading: boolean;
+	bands: AudioBands;
 	mode: VisualizationMode;
 	settings: SpectrumSettings;
 	onSettingsChange: (next: SpectrumSettings) => void;
@@ -127,7 +129,7 @@ ctx.restore();`,
 
 type SettingsTab = "audio" | "background" | "text" | "extension";
 
-export function PlaybackControls({ isPlaying, currentTime, duration, volume, isLoading, mode, settings, onSettingsChange, onModeChange, onPlay, onPause, onSeek, onVolumeChange }: PlaybackControlsProps) {
+export function PlaybackControls({ isPlaying, currentTime, duration, volume, isLoading, bands, mode, settings, onSettingsChange, onModeChange, onPlay, onPause, onSeek, onVolumeChange }: PlaybackControlsProps) {
 	const [showSettings, setShowSettings] = useState(false);
 	const [activeTab, setActiveTab] = useState<SettingsTab>("audio");
 
@@ -139,6 +141,12 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 	};
 
 	const tabButtonClass = (tab: SettingsTab) => `rounded-lg px-3 py-1.5 text-xs transition ${activeTab === tab ? "bg-cyan-500 text-white" : "text-slate-200 hover:bg-white/10"}`;
+
+	const bandItems: Array<{ label: string; value: number }> = [
+		{ label: "Bass (20-250Hz)", value: bands.bass },
+		{ label: "Mid (250-4kHz)", value: bands.mid },
+		{ label: "Treble (4k-16kHz)", value: bands.treble },
+	];
 
 	return (
 		<div className='fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl md:inset-x-8'>
@@ -177,6 +185,18 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 					<span className='font-mono text-sm text-slate-100'>
 						{formatTime(currentTime)} / {formatTime(duration)}
 					</span>
+				</div>
+
+				<div className='grid min-w-56 flex-1 grid-cols-1 gap-1 rounded-xl border border-white/10 bg-slate-900/40 px-2 py-1 md:max-w-sm'>
+					{bandItems.map((band) => (
+						<div key={band.label} className='grid grid-cols-[110px_1fr_34px] items-center gap-2 text-[10px] text-slate-300'>
+							<span className='truncate'>{band.label}</span>
+							<div className='h-1.5 overflow-hidden rounded-full bg-white/10'>
+								<div className='h-full rounded-full bg-cyan-400 transition-[width]' style={{ width: `${Math.round(Math.min(1, band.value) * 100)}%` }} />
+							</div>
+							<span className='text-right font-mono text-[10px]'>{Math.round(Math.min(1, band.value) * 100)}%</span>
+						</div>
+					))}
 				</div>
 
 				<div className='flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-900/40 p-1'>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FileUpload } from "@/components/file-upload";
 import { PlaybackControls } from "@/components/playback-controls";
 import { VideoExport } from "@/components/video-export";
@@ -63,16 +63,7 @@ export function AudioVisualizer() {
 	const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
 	const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
 
-	const bassIntensity = useMemo(() => {
-		if (!audio.frequencyData.length) return 0;
-		const maxFrequency = 256;
-		const nyquist = (audio.audioContext?.sampleRate ?? 44100) / 2;
-		const count = Math.max(1, Math.floor((maxFrequency / nyquist) * audio.frequencyData.length));
-
-		let sum = 0;
-		for (let i = 0; i < count; i += 1) sum += audio.frequencyData[i] ?? 0;
-		return Math.min(1, (sum / count / 255) * settings.sensitivity);
-	}, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime, settings.sensitivity]);
+	const bassIntensity = Math.min(1, audio.bands.bass * settings.sensitivity);
 
 	const loadAudio = useCallback(
 		async (file: File) => {
@@ -167,6 +158,7 @@ export function AudioVisualizer() {
 				duration={audio.state.duration}
 				volume={audio.state.volume}
 				isLoading={audio.state.isLoading}
+				bands={audio.bands}
 				mode={mode}
 				settings={settings}
 				onSettingsChange={setSettings}
