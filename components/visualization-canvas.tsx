@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 
 export type VisualizationMode = "bars" | "waveform" | "circular" | "reflective" | "layered-wave";
-export type SpectrumColorScheme = "sunset" | "neon" | "fire";
+export type SpectrumColorScheme = "sunset" | "neon" | "fire" | "ocean" | "forest" | "aurora" | "candy" | "monochrome";
 
 export interface SpectrumSettings {
 	frequencyBands: number;
@@ -265,7 +265,38 @@ function createGradient(ctx: CanvasRenderingContext2D, width: number, height: nu
 		gradient.addColorStop(1, "#ef4444");
 		return gradient;
 	}
-
+	if (scheme === "ocean") {
+		gradient.addColorStop(0, "#0ea5e9");
+		gradient.addColorStop(0.5, "#06b6d4");
+		gradient.addColorStop(1, "#6366f1");
+		return gradient;
+	}
+	if (scheme === "forest") {
+		gradient.addColorStop(0, "#86efac");
+		gradient.addColorStop(0.5, "#22c55e");
+		gradient.addColorStop(1, "#15803d");
+		return gradient;
+	}
+	if (scheme === "aurora") {
+		gradient.addColorStop(0, "#34d399");
+		gradient.addColorStop(0.4, "#818cf8");
+		gradient.addColorStop(0.8, "#f472b6");
+		gradient.addColorStop(1, "#34d399");
+		return gradient;
+	}
+	if (scheme === "candy") {
+		gradient.addColorStop(0, "#f9a8d4");
+		gradient.addColorStop(0.5, "#c084fc");
+		gradient.addColorStop(1, "#67e8f9");
+		return gradient;
+	}
+	if (scheme === "monochrome") {
+		gradient.addColorStop(0, "#ffffff");
+		gradient.addColorStop(0.5, "#94a3b8");
+		gradient.addColorStop(1, "#334155");
+		return gradient;
+	}
+	// sunset (default)
 	gradient.addColorStop(0, "#fb923c");
 	gradient.addColorStop(0.5, "#f59e0b");
 	gradient.addColorStop(1, "#06b6d4");
@@ -463,11 +494,16 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Float32Array, width: 
 		const r1 = baseRadius;
 		const r2 = baseRadius + amp;
 
+		const rel = angle / sweep;
 		const hue =
-			hueOverride !== undefined ? hueOverride
-			: settings.colorScheme === "neon" ? ((angle / sweep) * 360 + 180) % 360
+			settings.colorScheme === "neon" ? (rel * 360 + 180) % 360
 			: settings.colorScheme === "fire" ? 10 + energy * 50
-			: ((angle / sweep) * 360) % 360;
+			: settings.colorScheme === "ocean" ? 190 + rel * 60
+			: settings.colorScheme === "forest" ? 100 + rel * 40
+			: settings.colorScheme === "aurora" ? (rel * 300 + 150) % 360
+			: settings.colorScheme === "candy" ? (rel * 360 + 300) % 360
+			: settings.colorScheme === "monochrome" ? 220
+			: (rel * 360) % 360;
 
 		const lightness = 52 + energy * 22;
 		const alpha = 0.5 + energy * 0.5;
@@ -498,10 +534,20 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Float32Array, width: 
 			const hue1 =
 				settings.colorScheme === "neon" ? (rel * 360 + 180) % 360
 				: settings.colorScheme === "fire" ? 10 + e1 * 50
+				: settings.colorScheme === "ocean" ? 190 + rel * 60
+				: settings.colorScheme === "forest" ? 100 + rel * 40
+				: settings.colorScheme === "aurora" ? (rel * 300 + 150) % 360
+				: settings.colorScheme === "candy" ? (rel * 360 + 300) % 360
+				: settings.colorScheme === "monochrome" ? 220
 				: (rel * 360) % 360;
 			const hue2 =
 				settings.colorScheme === "neon" ? ((1 - rel) * 360 + 180) % 360
 				: settings.colorScheme === "fire" ? 10 + e2 * 50
+				: settings.colorScheme === "ocean" ? 190 + (1 - rel) * 60
+				: settings.colorScheme === "forest" ? 100 + (1 - rel) * 40
+				: settings.colorScheme === "aurora" ? ((1 - rel) * 300 + 150) % 360
+				: settings.colorScheme === "candy" ? ((1 - rel) * 360 + 300) % 360
+				: settings.colorScheme === "monochrome" ? 220
 				: ((1 - rel) * 360) % 360;
 
 			drawBar(a1, e1, hue1);
@@ -576,6 +622,26 @@ function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Float32Arra
 		fillGrad.addColorStop(0, "rgba(250,204,21,0.92)");
 		fillGrad.addColorStop(0.5, "rgba(249,115,22,0.8)");
 		fillGrad.addColorStop(1, "rgba(239,68,68,0.65)");
+	} else if (settings.colorScheme === "ocean") {
+		fillGrad.addColorStop(0, "rgba(14,165,233,0.9)");
+		fillGrad.addColorStop(0.5, "rgba(6,182,212,0.75)");
+		fillGrad.addColorStop(1, "rgba(99,102,241,0.55)");
+	} else if (settings.colorScheme === "forest") {
+		fillGrad.addColorStop(0, "rgba(134,239,172,0.9)");
+		fillGrad.addColorStop(0.5, "rgba(34,197,94,0.75)");
+		fillGrad.addColorStop(1, "rgba(21,128,61,0.55)");
+	} else if (settings.colorScheme === "aurora") {
+		fillGrad.addColorStop(0, "rgba(52,211,153,0.9)");
+		fillGrad.addColorStop(0.5, "rgba(129,140,248,0.75)");
+		fillGrad.addColorStop(1, "rgba(244,114,182,0.55)");
+	} else if (settings.colorScheme === "candy") {
+		fillGrad.addColorStop(0, "rgba(249,168,212,0.9)");
+		fillGrad.addColorStop(0.5, "rgba(192,132,252,0.75)");
+		fillGrad.addColorStop(1, "rgba(103,232,249,0.55)");
+	} else if (settings.colorScheme === "monochrome") {
+		fillGrad.addColorStop(0, "rgba(255,255,255,0.9)");
+		fillGrad.addColorStop(0.5, "rgba(148,163,184,0.65)");
+		fillGrad.addColorStop(1, "rgba(51,65,85,0.4)");
 	} else {
 		fillGrad.addColorStop(0, "rgba(255,255,255,0.92)");
 		fillGrad.addColorStop(0.5, "rgba(200,220,240,0.78)");
@@ -591,6 +657,26 @@ function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Float32Arra
 		strokeGrad.addColorStop(0, "#ef4444");
 		strokeGrad.addColorStop(0.5, "#f97316");
 		strokeGrad.addColorStop(1, "#facc15");
+	} else if (settings.colorScheme === "ocean") {
+		strokeGrad.addColorStop(0, "#6366f1");
+		strokeGrad.addColorStop(0.5, "#06b6d4");
+		strokeGrad.addColorStop(1, "#0ea5e9");
+	} else if (settings.colorScheme === "forest") {
+		strokeGrad.addColorStop(0, "#15803d");
+		strokeGrad.addColorStop(0.5, "#22c55e");
+		strokeGrad.addColorStop(1, "#86efac");
+	} else if (settings.colorScheme === "aurora") {
+		strokeGrad.addColorStop(0, "#34d399");
+		strokeGrad.addColorStop(0.5, "#818cf8");
+		strokeGrad.addColorStop(1, "#f472b6");
+	} else if (settings.colorScheme === "candy") {
+		strokeGrad.addColorStop(0, "#67e8f9");
+		strokeGrad.addColorStop(0.5, "#c084fc");
+		strokeGrad.addColorStop(1, "#f9a8d4");
+	} else if (settings.colorScheme === "monochrome") {
+		strokeGrad.addColorStop(0, "#334155");
+		strokeGrad.addColorStop(0.5, "#94a3b8");
+		strokeGrad.addColorStop(1, "#ffffff");
 	} else {
 		strokeGrad.addColorStop(0, "#fb923c");
 		strokeGrad.addColorStop(0.5, "#f8fafc");
@@ -614,6 +700,11 @@ function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Float32Arra
 	ctx.shadowColor =
 		settings.colorScheme === "neon" ? "rgba(167,139,250,0.7)"
 		: settings.colorScheme === "fire" ? "rgba(249,115,22,0.7)"
+		: settings.colorScheme === "ocean" ? "rgba(6,182,212,0.7)"
+		: settings.colorScheme === "forest" ? "rgba(34,197,94,0.7)"
+		: settings.colorScheme === "aurora" ? "rgba(52,211,153,0.7)"
+		: settings.colorScheme === "candy" ? "rgba(192,132,252,0.7)"
+		: settings.colorScheme === "monochrome" ? "rgba(148,163,184,0.6)"
 		: "rgba(255,255,255,0.6)";
 	ctx.shadowBlur = settings.glow * 0.9;
 	ctx.stroke();
@@ -691,6 +782,36 @@ function drawLayeredWaveSpectrum(ctx: CanvasRenderingContext2D, data: Float32Arr
 			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(239,68,68,0.72)", strokeColor: "rgba(239,68,68,0.9)" },
 			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(249,115,22,0.8)", strokeColor: "rgba(249,115,22,0.95)" },
 			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(250,204,21,0.88)", strokeColor: "rgba(250,204,21,1)" },
+		];
+	} else if (settings.colorScheme === "ocean") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(99,102,241,0.72)", strokeColor: "rgba(99,102,241,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(6,182,212,0.8)", strokeColor: "rgba(6,182,212,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(14,165,233,0.88)", strokeColor: "rgba(14,165,233,1)" },
+		];
+	} else if (settings.colorScheme === "forest") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(21,128,61,0.72)", strokeColor: "rgba(21,128,61,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(34,197,94,0.8)", strokeColor: "rgba(34,197,94,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(134,239,172,0.88)", strokeColor: "rgba(134,239,172,1)" },
+		];
+	} else if (settings.colorScheme === "aurora") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(52,211,153,0.72)", strokeColor: "rgba(52,211,153,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(129,140,248,0.8)", strokeColor: "rgba(129,140,248,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(244,114,182,0.88)", strokeColor: "rgba(244,114,182,1)" },
+		];
+	} else if (settings.colorScheme === "candy") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.55, color: "rgba(103,232,249,0.72)", strokeColor: "rgba(103,232,249,0.9)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.65, color: "rgba(192,132,252,0.8)", strokeColor: "rgba(192,132,252,0.95)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(249,168,212,0.88)", strokeColor: "rgba(249,168,212,1)" },
+		];
+	} else if (settings.colorScheme === "monochrome") {
+		layers = [
+			{ ampScale: 0.55, phase: 2.1, alpha: 0.4, color: "rgba(51,65,85,0.65)", strokeColor: "rgba(51,65,85,0.85)" },
+			{ ampScale: 0.75, phase: 1.05, alpha: 0.55, color: "rgba(148,163,184,0.72)", strokeColor: "rgba(148,163,184,0.9)" },
+			{ ampScale: 1.0, phase: 0, alpha: 0.88, color: "rgba(241,245,249,0.88)", strokeColor: "rgba(255,255,255,1)" },
 		];
 	} else {
 		layers = [

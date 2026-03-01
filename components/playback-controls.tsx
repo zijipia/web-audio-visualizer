@@ -29,7 +29,7 @@ const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
 	{ id: "circular", icon: <Circle size={16} />, label: "Circular" },
 ];
 
-const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire"];
+const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire", "ocean", "forest", "aurora", "candy", "monochrome"];
 const EXTENSION_SAMPLES = {
 	spectrum: `// 🌈 Cyber Neon Spectrum — reactive glow bars
 const ctx = context.ctx;
