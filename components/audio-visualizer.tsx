@@ -46,6 +46,10 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
 	backgroundGlow: 0.4,
 	backgroundReactMinHz: 20,
 	backgroundReactMaxHz: 220,
+	extensionEnabled: false,
+	extensionSpectrumCode: "",
+	extensionBackgroundCode: "",
+	extensionTextCode: "",
 };
 
 export function AudioVisualizer() {
