@@ -22,6 +22,10 @@ export interface SpectrumSettings {
 	fallSpeed: number;
 	colorScheme: SpectrumColorScheme;
 	mirror: boolean;
+	overlayText: string;
+	overlayTextSize: number;
+	overlayTextY: number;
+	overlayTextOpacity: number;
 }
 
 interface Particle {
@@ -319,6 +323,27 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	ctx.restore();
 }
 
+
+function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number) {
+	const text = settings.overlayText.trim();
+	if (!text) return;
+
+	const size = Math.max(16, settings.overlayTextSize);
+	const y = Math.max(40, Math.min(height - 24, settings.overlayTextY));
+	const alpha = Math.max(0, Math.min(1, settings.overlayTextOpacity));
+	const pulse = 0.82 + bassIntensity * 0.3;
+
+	ctx.save();
+	ctx.font = `700 ${size}px Inter, system-ui, sans-serif`;
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4})`;
+	ctx.shadowBlur = 14 + bassIntensity * 24;
+	ctx.fillStyle = `rgba(241, 245, 249, ${alpha * pulse})`;
+	ctx.fillText(text, width / 2, y);
+	ctx.restore();
+}
+
 function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: number, duration: number, currentTime: number) {
 	if (!duration) return;
 	const progress = Math.max(0, Math.min(1, currentTime / duration));
@@ -408,6 +433,7 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
 				const effectiveTime = Math.max(0, currentTime - offsetSec);
 
+				drawOverlayText(ctx, width, height, settings, bassIntensity);
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 

@@ -290,6 +290,53 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 						/>
 					</label>
 
+
+					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2 md:col-span-2'>
+						<span>Overlay Text</span>
+						<input
+							type='text'
+							value={settings.overlayText}
+							placeholder='Nhập chữ muốn hiển thị... '
+							onChange={(event) => onSettingsChange({ ...settings, overlayText: event.target.value })}
+							className='w-full rounded-md border border-white/10 bg-slate-900/70 p-1.5 text-slate-100'
+						/>
+					</label>
+
+					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
+						<span>Text Size: {Math.round(settings.overlayTextSize)} px</span>
+						<input
+							type='range'
+							min={16}
+							max={180}
+							step={1}
+							value={settings.overlayTextSize}
+							onChange={(event) => onSettingsChange({ ...settings, overlayTextSize: Number(event.target.value) })}
+						/>
+					</label>
+
+					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
+						<span>Text Y: {Math.round(settings.overlayTextY)} px</span>
+						<input
+							type='range'
+							min={40}
+							max={900}
+							step={1}
+							value={settings.overlayTextY}
+							onChange={(event) => onSettingsChange({ ...settings, overlayTextY: Number(event.target.value) })}
+						/>
+					</label>
+
+					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
+						<span>Text Opacity: {settings.overlayTextOpacity.toFixed(2)}</span>
+						<input
+							type='range'
+							min={0}
+							max={1}
+							step={0.01}
+							value={settings.overlayTextOpacity}
+							onChange={(event) => onSettingsChange({ ...settings, overlayTextOpacity: Number(event.target.value) })}
+						/>
+					</label>
 					<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/40 p-2'>
 						<span>Color scheme</span>
 						<select

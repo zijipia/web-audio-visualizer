@@ -24,6 +24,10 @@ const DEFAULT_SETTINGS: SpectrumSettings = {
 	fallSpeed: 3,
 	colorScheme: "sunset",
 	mirror: true,
+	overlayText: "",
+	overlayTextSize: 56,
+	overlayTextY: 180,
+	overlayTextOpacity: 0.9,
 };
 
 export function AudioVisualizer() {
@@ -104,6 +108,13 @@ export function AudioVisualizer() {
 				renderAudioStream={audio.getRecordingStream()}
 				duration={audio.state.duration}
 				currentTime={audio.state.currentTime}
+				onStartRender={() => {
+					audio.seek(0);
+					audio.play().catch(() => {
+						// user gesture restrictions may prevent autoplay in some browsers
+					});
+				}}
+				onStopRender={audio.pause}
 			/>
 
 			<PlaybackControls
