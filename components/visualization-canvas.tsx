@@ -312,7 +312,7 @@ function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const usableLength = Math.max(1, endIndex - startIndex);
 
-	const count = Math.max(16, Math.min(settings.frequencyBands, data.length));
+	const count = Math.min(settings.frequencyBands, data.length);
 
 	const barWidth = width / count;
 	const gradient = createGradient(ctx, 0, height, settings.colorScheme);
@@ -402,7 +402,6 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const rangeLength = Math.max(1, endIndex - startIndex);
 	const bars = Math.max(64, settings.frequencyBands * 2);
-	const step = Math.max(1, Math.floor(rangeLength / bars));
 
 	ctx.fillStyle = `rgba(10,14,39,${0.1 + (1 - settings.softness) * 0.22})`;
 	ctx.fillRect(0, 0, width, height);
@@ -426,7 +425,6 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 		ctx.shadowBlur = settings.glow * 1.5;
 	}
 
-	// const sweep = settings.mirror ? Math.PI : Math.PI * 2;
 	const sweep = Math.PI * 2;
 
 	function drawBar(angle: number, energy: number) {
@@ -449,12 +447,14 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 		ctx.lineTo(x2, y2);
 		ctx.stroke();
 	}
-	if (settings.mirror) {
-		const half = Math.floor(rangeLength / 2);
 
-		for (let i = 0; i < half; i += step) {
-			const idx1 = startIndex + i;
-			const idx2 = startIndex + (half - i);
+	if (settings.mirror) {
+		const barsPerSide = Math.floor(bars / 2);
+
+		for (let i = 0; i < barsPerSide; i += 1) {
+			const rel = i / barsPerSide;
+			const idx1 = startIndex + Math.floor(rel * rangeLength);
+			const idx2 = startIndex + Math.floor((1 - rel) * rangeLength);
 
 			let e1 = (data[idx1] ?? 0) / 255;
 			let e2 = (data[idx2] ?? 0) / 255;
@@ -462,59 +462,36 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 			e1 = Math.pow(e1 * settings.sensitivity, 0.65);
 			e2 = Math.pow(e2 * settings.sensitivity, 0.65);
 
-			const a1 = (i / half) * Math.PI * 2 - Math.PI / 2;
-			const a2 = ((i + half) / half) * Math.PI * 2 - Math.PI / 2;
+			const a1 = (i / barsPerSide) * sweep - Math.PI / 2;
+			const a2 = ((i + barsPerSide) / bars) * sweep - Math.PI / 2;
 
 			drawBar(a1, e1);
 			drawBar(a2, e2);
 		}
 	} else {
-		for (let i = 0; i < rangeLength; i += step) {
-			const index = startIndex + i;
+		for (let i = 0; i < bars; i += 1) {
+			const rel = i / bars;
+			const index = startIndex + Math.floor(rel * rangeLength);
 
 			let energy = (data[index] ?? 0) / 255;
-
-			// Anti-spike smoothing
 			energy = Math.pow(energy * settings.sensitivity, 0.65);
 			energy = Math.min(1, energy);
 
-			const angle = (i / rangeLength) * sweep - Math.PI / 2;
-			const amp = energy * maxAmp;
-
-			const r1 = baseRadius;
-			const r2 = baseRadius + amp;
-
-			const x1 = Math.cos(angle) * r1;
-			const y1 = Math.sin(angle) * r1;
-			const x2 = Math.cos(angle) * r2;
-			const y2 = Math.sin(angle) * r2;
+			const angle = rel * sweep - Math.PI / 2;
 
 			let hue;
-			if (settings.colorScheme === "neon") hue = (i / rangeLength) * 360 + 180;
+			if (settings.colorScheme === "neon") hue = rel * 360 + 180;
 			else if (settings.colorScheme === "fire") hue = 10 + energy * 60;
-			else hue = (i / rangeLength) * 360;
+			else hue = rel * 360;
 
-			ctx.strokeStyle = `hsla(${hue}, 95%, ${55 + energy * 20}%, ${0.5 + energy * 0.5})`;
-			ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,0.85)` : "transparent";
-
-			ctx.beginPath();
-			ctx.moveTo(x1, y1);
-			ctx.lineTo(x2, y2);
-			ctx.stroke();
+			drawBar(angle, energy);
 		}
 	}
 
 	ctx.restore();
 }
 
-function drawReflectiveSpectrum(
-	ctx: CanvasRenderingContext2D,
-	data: Uint8Array,
-	width: number,
-	height: number,
-	sampleRate: number,
-	settings: SpectrumSettings,
-) {
+function drawReflectiveSpectrum(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const count = Math.max(64, Math.min(320, settings.frequencyBands * 2));
 	const usableLength = Math.max(1, endIndex - startIndex);
@@ -611,14 +588,7 @@ function drawReflectiveSpectrum(
 	ctx.filter = "none";
 }
 
-function drawLayeredWaveSpectrum(
-	ctx: CanvasRenderingContext2D,
-	data: Uint8Array,
-	width: number,
-	height: number,
-	sampleRate: number,
-	settings: SpectrumSettings,
-) {
+function drawLayeredWaveSpectrum(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const count = Math.max(56, Math.min(220, settings.frequencyBands));
 	const usableLength = Math.max(1, endIndex - startIndex);
