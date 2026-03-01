@@ -5,26 +5,43 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface VideoExportProps {
   exportCanvas: HTMLCanvasElement | null;
-  recordingAudioStream: MediaStream | null;
+  renderAudioStream: MediaStream | null;
   duration: number;
   currentTime: number;
+  onStartRender?: () => void;
+  onStopRender?: () => void;
 }
 
-interface RecordingState {
-  isRecording: boolean;
+interface RenderState {
+  isRendering: boolean;
   isProcessing: boolean;
-  recordedBlobUrl: string | null;
+  renderedBlobUrl: string | null;
+  outputExt: 'mp4' | 'webm';
 }
 
-export function VideoExport({ exportCanvas, recordingAudioStream, duration, currentTime }: VideoExportProps) {
+function pickRecorderType() {
+  const mp4Type = 'video/mp4;codecs=avc1.42E01E,mp4a.40.2';
+  if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mp4Type)) {
+    return { mimeType: mp4Type, ext: 'mp4' as const };
+  }
+
+  const webmType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+    ? 'video/webm;codecs=vp8,opus'
+    : 'video/webm';
+  return { mimeType: webmType, ext: 'webm' as const };
+}
+
+export function VideoExport({ exportCanvas, renderAudioStream, duration, currentTime, onStartRender, onStopRender }: VideoExportProps) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const stopTimerRef = useRef<number | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
-  const [state, setState] = useState<RecordingState>({
-    isRecording: false,
+  const [state, setState] = useState<RenderState>({
+    isRendering: false,
     isProcessing: false,
-    recordedBlobUrl: null,
+    renderedBlobUrl: null,
+    outputExt: 'webm',
   });
 
   const estimatedSize = useMemo(() => {
@@ -35,23 +52,45 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
 
   const cleanupUrl = useCallback(() => {
     setState((prev) => {
-      if (prev.recordedBlobUrl) {
-        URL.revokeObjectURL(prev.recordedBlobUrl);
+      if (prev.renderedBlobUrl) {
+        URL.revokeObjectURL(prev.renderedBlobUrl);
       }
-      return { ...prev, recordedBlobUrl: null };
+      return { ...prev, renderedBlobUrl: null };
     });
+  }, []);
+
+  const clearStopTimer = useCallback(() => {
+    if (stopTimerRef.current) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
     return () => {
       cleanupUrl();
+      clearStopTimer();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
-  }, [cleanupUrl]);
+  }, [cleanupUrl, clearStopTimer]);
 
-  const startRecording = useCallback(() => {
+  const stopRender = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      setState((prev) => ({ ...prev, isProcessing: true }));
+      clearStopTimer();
+      onStopRender?.();
+      recorderRef.current.stop();
+    }
+  }, [clearStopTimer, onStopRender]);
+
+  const startRender = useCallback(() => {
     if (!exportCanvas) {
       window.alert('Visualizer canvas is not ready yet.');
+      return;
+    }
+
+    if (!duration) {
+      window.alert('Không xác định được thời lượng bài hát để render.');
       return;
     }
 
@@ -61,13 +100,11 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
     const mergedStream = new MediaStream();
 
     videoStream.getVideoTracks().forEach((track) => mergedStream.addTrack(track));
-    recordingAudioStream?.getAudioTracks().forEach((track) => mergedStream.addTrack(track));
+    renderAudioStream?.getAudioTracks().forEach((track) => mergedStream.addTrack(track));
 
     streamRef.current = mergedStream;
 
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-      ? 'video/webm;codecs=vp8,opus'
-      : 'video/webm';
+    const { mimeType, ext } = pickRecorderType();
 
     const recorder = new MediaRecorder(mergedStream, {
       mimeType,
@@ -85,55 +122,58 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mimeType });
       const url = URL.createObjectURL(blob);
-      setState((prev) => ({ ...prev, isRecording: false, isProcessing: false, recordedBlobUrl: url }));
+      setState((prev) => ({ ...prev, isRendering: false, isProcessing: false, renderedBlobUrl: url, outputExt: ext }));
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      clearStopTimer();
     };
 
-    setState((prev) => ({ ...prev, isRecording: true, isProcessing: false }));
+    onStartRender?.();
+    setState((prev) => ({ ...prev, isRendering: true, isProcessing: false, outputExt: ext }));
     recorder.start(250);
-  }, [cleanupUrl, exportCanvas, recordingAudioStream]);
 
-  const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      setState((prev) => ({ ...prev, isProcessing: true }));
-      recorderRef.current.stop();
-    }
-  }, []);
+    const remainingMs = Math.max(250, Math.ceil(duration * 1000));
+    stopTimerRef.current = window.setTimeout(() => {
+      stopRender();
+    }, remainingMs);
+  }, [cleanupUrl, currentTime, duration, exportCanvas, onStartRender, renderAudioStream, stopRender]);
 
-  const downloadRecording = useCallback(() => {
-    if (!state.recordedBlobUrl) return;
+  const downloadRender = useCallback(() => {
+    if (!state.renderedBlobUrl) return;
     const link = document.createElement('a');
-    link.href = state.recordedBlobUrl;
-    link.download = `visualization_${Date.now()}.webm`;
+    link.href = state.renderedBlobUrl;
+    link.download = `visualization_${Date.now()}.${state.outputExt}`;
     link.click();
-  }, [state.recordedBlobUrl]);
+  }, [state.outputExt, state.renderedBlobUrl]);
 
   return (
-    <div className="pointer-events-auto fixed right-3 top-3 z-30 w-[min(300px,calc(100vw-1.5rem))] rounded-2xl border border-white/10 bg-slate-950/40 p-3 backdrop-blur-xl">
-      <h2 className="mb-2 text-sm font-semibold text-slate-100">Video Export</h2>
+    <div className="pointer-events-auto fixed right-3 top-3 z-30 w-[min(320px,calc(100vw-1.5rem))] rounded-2xl border border-white/10 bg-slate-950/40 p-3 backdrop-blur-xl">
+      <h2 className="mb-2 text-sm font-semibold text-slate-100">Video Render</h2>
       <p className="text-xs text-slate-300">Estimated size: {estimatedSize}</p>
-      <p className="mb-3 text-xs text-slate-300">Duration: {Math.round(duration || currentTime)}s</p>
+      <p className="text-xs text-slate-300">Duration: {Math.round(duration || currentTime)}s</p>
+      <p className="mb-3 text-xs text-amber-200/90">
+        Render sẽ tự dừng theo thời lượng bài hát. Ưu tiên MP4 nếu browser hỗ trợ, nếu không sẽ fallback WebM.
+      </p>
 
       <div className="flex items-center gap-2">
         <button
-          onClick={state.isRecording ? stopRecording : startRecording}
+          onClick={state.isRendering ? stopRender : startRender}
           className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
-            state.isRecording
+            state.isRendering
               ? 'bg-red-500/20 text-red-100 hover:bg-red-500/30'
               : 'bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30'
           }`}
         >
           {state.isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
-          {state.isRecording ? 'Stop Recording' : 'Start Recording'}
+          {state.isRendering ? 'Stop Render' : 'Render Full Song'}
         </button>
 
         <button
-          onClick={downloadRecording}
-          disabled={!state.recordedBlobUrl}
+          onClick={downloadRender}
+          disabled={!state.renderedBlobUrl}
           className="flex items-center gap-2 rounded-lg bg-emerald-500/20 px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-45"
         >
-          <Download size={16} /> Download
+          <Download size={16} /> Download {state.outputExt.toUpperCase()}
         </button>
       </div>
     </div>

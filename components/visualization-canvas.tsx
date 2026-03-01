@@ -22,6 +22,20 @@ export interface SpectrumSettings {
 	fallSpeed: number;
 	colorScheme: SpectrumColorScheme;
 	mirror: boolean;
+	overlayText: string;
+	overlayTextSize: number;
+	overlayTextY: number;
+	overlayTextOpacity: number;
+}
+
+interface Particle {
+	x: number;
+	y: number;
+	vx: number;
+	vy: number;
+	size: number;
+	alpha: number;
+	hue: number;
 }
 
 interface VisualizationCanvasProps {
@@ -34,6 +48,8 @@ interface VisualizationCanvasProps {
 	onSeek: (time: number) => void;
 	onExportCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
 	settings: SpectrumSettings;
+	bassIntensity: number;
+	backgroundImage: string | null;
 }
 
 function resolveFrequencyRange(data: Uint8Array, sampleRate: number, settings: SpectrumSettings) {
@@ -73,6 +89,89 @@ function createGradient(ctx: CanvasRenderingContext2D, width: number, height: nu
 	return gradient;
 }
 
+function drawBackground(
+	ctx: CanvasRenderingContext2D,
+	width: number,
+	height: number,
+	bassIntensity: number,
+	bgImage: HTMLImageElement | null,
+	smoothBassRef: { current: number },
+	particles: Particle[],
+	deltaMs: number,
+) {
+	smoothBassRef.current += (bassIntensity - smoothBassRef.current) * 0.12;
+	const smoothBass = smoothBassRef.current;
+
+	ctx.save();
+	ctx.fillStyle = "#050812";
+	ctx.fillRect(0, 0, width, height);
+
+	if (bgImage) {
+		const scale = 1.08 + smoothBass * 0.1;
+		const drawWidth = width * scale;
+		const drawHeight = height * scale;
+		const x = (width - drawWidth) / 2;
+		const y = (height - drawHeight) / 2;
+
+		ctx.globalAlpha = 0.56 + smoothBass * 0.18;
+		ctx.filter = `brightness(${0.5 + smoothBass * 0.35}) saturate(${1.05 + smoothBass * 0.35})`;
+		ctx.drawImage(bgImage, x, y, drawWidth, drawHeight);
+		ctx.filter = "none";
+		ctx.globalAlpha = 1;
+	} else {
+		const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+		bgGradient.addColorStop(0, "#0a0e27");
+		bgGradient.addColorStop(0.45, "#111833");
+		bgGradient.addColorStop(1, "#0d132d");
+		ctx.fillStyle = bgGradient;
+		ctx.fillRect(0, 0, width, height);
+	}
+
+	ctx.fillStyle = `rgba(5, 8, 18, ${0.52 - smoothBass * 0.24})`;
+	ctx.fillRect(0, 0, width, height);
+
+	const pulse = ctx.createRadialGradient(width * 0.5, height * 0.45, width * 0.08, width * 0.5, height * 0.45, width * 0.7);
+	pulse.addColorStop(0, `rgba(251, 146, 60, ${0.14 + smoothBass * 0.35})`);
+	pulse.addColorStop(0.3, `rgba(245, 158, 11, ${0.09 + smoothBass * 0.2})`);
+	pulse.addColorStop(0.8, "rgba(2, 132, 199, 0.04)");
+	pulse.addColorStop(1, "rgba(2, 132, 199, 0)");
+	ctx.fillStyle = pulse;
+	ctx.fillRect(0, 0, width, height);
+
+	const spawnCount = Math.floor((deltaMs / 16.67) * (0.5 + smoothBass * 2.2));
+	for (let i = 0; i < spawnCount; i += 1) {
+		if (particles.length > 280) break;
+		particles.push({
+			x: Math.random() * width,
+			y: height + Math.random() * 30,
+			vx: (Math.random() - 0.5) * (0.18 + smoothBass * 0.85),
+			vy: -(0.45 + Math.random() * 1.45 + smoothBass * 2.2),
+			size: 0.8 + Math.random() * (1.6 + smoothBass * 2.6),
+			alpha: 0.2 + Math.random() * (0.3 + smoothBass * 0.3),
+			hue: 25 + Math.random() * 190,
+		});
+	}
+
+	for (let i = particles.length - 1; i >= 0; i -= 1) {
+		const particle = particles[i];
+		particle.x += particle.vx * (deltaMs / 16.67);
+		particle.y += particle.vy * (deltaMs / 16.67);
+		particle.alpha -= 0.0045 * (deltaMs / 16.67);
+
+		if (particle.alpha <= 0 || particle.y < -20) {
+			particles.splice(i, 1);
+			continue;
+		}
+
+		ctx.beginPath();
+		ctx.fillStyle = `hsla(${particle.hue}, 95%, 65%, ${particle.alpha})`;
+		ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+		ctx.fill();
+	}
+
+	ctx.restore();
+}
+
 function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings, displayState: Float32Array, deltaMs: number) {
 	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
 	const usableLength = Math.max(1, endIndex - startIndex);
@@ -81,7 +180,7 @@ function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number
 		16,
 		Math.min(
 			settings.frequencyBands,
-			data.length, //usableLength
+			data.length,
 		),
 	);
 
@@ -224,6 +323,27 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 	ctx.restore();
 }
 
+
+function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number) {
+	const text = settings.overlayText.trim();
+	if (!text) return;
+
+	const size = Math.max(16, settings.overlayTextSize);
+	const y = Math.max(40, Math.min(height - 24, settings.overlayTextY));
+	const alpha = Math.max(0, Math.min(1, settings.overlayTextOpacity));
+	const pulse = 0.82 + bassIntensity * 0.3;
+
+	ctx.save();
+	ctx.font = `700 ${size}px Inter, system-ui, sans-serif`;
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4})`;
+	ctx.shadowBlur = 14 + bassIntensity * 24;
+	ctx.fillStyle = `rgba(241, 245, 249, ${alpha * pulse})`;
+	ctx.fillText(text, width / 2, y);
+	ctx.restore();
+}
+
 function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: number, duration: number, currentTime: number) {
 	if (!duration) return;
 	const progress = Math.max(0, Math.min(1, currentTime / duration));
@@ -238,11 +358,27 @@ function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: numb
 	ctx.fillRect(0, height - 8, width * progress, 8);
 }
 
-export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode, duration, currentTime, onSeek, onExportCanvasReady, settings }: VisualizationCanvasProps) {
+export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode, duration, currentTime, onSeek, onExportCanvasReady, settings, bassIntensity, backgroundImage }: VisualizationCanvasProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const barDisplayStateRef = useRef<Float32Array>(new Float32Array(512));
 	const lastFrameTimeRef = useRef<number>(performance.now());
+	const smoothBassRef = useRef<number>(0);
+	const imageRef = useRef<HTMLImageElement | null>(null);
+	const screenParticlesRef = useRef<Particle[]>([]);
+	const exportParticlesRef = useRef<Particle[]>([]);
+
+	useEffect(() => {
+		if (!backgroundImage) {
+			imageRef.current = null;
+			return;
+		}
+
+		const image = new Image();
+		image.decoding = "async";
+		image.src = backgroundImage;
+		imageRef.current = image;
+	}, [backgroundImage]);
 
 	useEffect(() => {
 		const exportCanvas = document.createElement("canvas");
@@ -280,8 +416,9 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 			const deltaMs = Math.max(1, now - lastFrameTimeRef.current);
 			lastFrameTimeRef.current = now;
 
-			const draw = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+			const draw = (ctx: CanvasRenderingContext2D, width: number, height: number, particles: Particle[]) => {
 				ctx.clearRect(0, 0, width, height);
+				drawBackground(ctx, width, height, bassIntensity, imageRef.current, smoothBassRef, particles, deltaMs);
 
 				if (mode === "bars") {
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
@@ -296,17 +433,18 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
 				const effectiveTime = Math.max(0, currentTime - offsetSec);
 
+				drawOverlayText(ctx, width, height, settings, bassIntensity);
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
-			draw(context, displayWidth, displayHeight);
-			draw(exportContext, 1920, 1080);
+			draw(context, displayWidth, displayHeight, screenParticlesRef.current);
+			draw(exportContext, 1920, 1080, exportParticlesRef.current);
 			frame = requestAnimationFrame(renderFrame);
 		};
 
 		frame = requestAnimationFrame(renderFrame);
 		return () => cancelAnimationFrame(frame);
-	}, [mode, frequencyData, timeData, duration, currentTime, sampleRate, settings]);
+	}, [mode, frequencyData, timeData, duration, currentTime, sampleRate, settings, bassIntensity]);
 
 	const handleSeekFromCanvas = (clientX: number) => {
 		if (!duration || !canvasRef.current) return;
