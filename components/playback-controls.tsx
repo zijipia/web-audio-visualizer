@@ -28,7 +28,47 @@ const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
 ];
 
 const SCHEMES: SpectrumColorScheme[] = ["sunset", "neon", "fire"];
-type SettingsTab = "audio" | "background" | "text";
+const EXTENSION_SAMPLES = {
+	spectrum: `// Vẽ thêm lớp spectrum tuỳ chỉnh sau spectrum mặc định
+const bars = 24;
+const baseY = context.height * 0.78;
+const width = context.width / bars;
+context.ctx.save();
+for (let i = 0; i < bars; i += 1) {
+	const index = Math.floor((i / bars) * context.frequencyData.length);
+	const energy = (context.frequencyData[index] ?? 0) / 255;
+	const h = energy * 180;
+	context.ctx.fillStyle = \`rgba(56, 189, 248, \${0.2 + energy * 0.8})\`;
+	context.ctx.fillRect(i * width + 2, baseY - h, width - 4, h);
+}
+context.ctx.restore();`,
+	background: `// Vẽ background layer phía sau spectrum
+const pulse = 0.15 + context.backgroundReact * 0.35;
+const radius = Math.min(context.width, context.height) * (0.2 + context.bassIntensity * 0.15);
+const gradient = context.ctx.createRadialGradient(
+	context.width / 2,
+	context.height / 2,
+	0,
+	context.width / 2,
+	context.height / 2,
+	radius,
+);
+gradient.addColorStop(0, \`rgba(236, 72, 153, \${pulse})\`);
+gradient.addColorStop(1, "rgba(236, 72, 153, 0)");
+context.ctx.save();
+context.ctx.fillStyle = gradient;
+context.ctx.fillRect(0, 0, context.width, context.height);
+context.ctx.restore();`,
+	text: `// Vẽ text layer bổ sung sau text/logo mặc định
+context.ctx.save();
+context.ctx.font = "600 26px Inter, sans-serif";
+context.ctx.textAlign = "center";
+context.ctx.fillStyle = \`rgba(255, 255, 255, \${0.5 + context.textReact * 0.5})\`;
+context.ctx.fillText(\`Beat: \${Math.round(context.bassIntensity * 100)}%\`, context.width / 2, context.height - 44);
+context.ctx.restore();`,
+} as const;
+
+type SettingsTab = "audio" | "background" | "text" | "extension";
 
 export function PlaybackControls({ isPlaying, currentTime, duration, volume, isLoading, mode, settings, onSettingsChange, onModeChange, onPlay, onPause, onSeek, onVolumeChange }: PlaybackControlsProps) {
 	const [showSettings, setShowSettings] = useState(false);
@@ -47,25 +87,12 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 	return (
 		<div className='fixed inset-x-3 bottom-3 z-30 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl md:inset-x-8'>
 			<div className='mb-3'>
-				<input
-					type='range'
-					min={0}
-					max={duration || 0}
-					step={0.01}
-					value={Math.min(currentTime, duration || 0)}
-					onChange={(event) => onSeek(Number(event.target.value))}
-					className='h-1.5 w-full'
-					aria-label='Seek'
-				/>
+				<input type='range' min={0} max={duration || 0} step={0.01} value={Math.min(currentTime, duration || 0)} onChange={(event) => onSeek(Number(event.target.value))} className='h-1.5 w-full' aria-label='Seek' />
 			</div>
 
 			<div className='flex flex-col gap-3 md:flex-row md:items-center md:justify-between'>
 				<div className='flex items-center gap-3'>
-					<button
-						onClick={isPlaying ? onPause : onPlay}
-						disabled={isLoading}
-						className='rounded-full bg-orange-500 p-3 text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50'
-						aria-label={isPlaying ? "Pause" : "Play"}>
+					<button onClick={isPlaying ? onPause : onPlay} disabled={isLoading} className='rounded-full bg-orange-500 p-3 text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50' aria-label={isPlaying ? "Pause" : "Play"}>
 						{isPlaying ? <Pause size={20} fill='currentColor' /> : <Play size={20} fill='currentColor' />}
 					</button>
 
@@ -76,18 +103,13 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 
 				<div className='flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-slate-900/40 p-1'>
 					{MODES.map((item) => (
-						<button
-							key={item.id}
-							onClick={() => onModeChange(item.id)}
-							className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${mode === item.id ? "bg-orange-500 text-white" : "text-slate-200 hover:bg-white/10"}`}>
+						<button key={item.id} onClick={() => onModeChange(item.id)} className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${mode === item.id ? "bg-orange-500 text-white" : "text-slate-200 hover:bg-white/10"}`}>
 							{item.icon}
 							{item.label}
 						</button>
 					))}
 
-					<button
-						onClick={() => setShowSettings((prev) => !prev)}
-						className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${showSettings ? "bg-cyan-500 text-white" : "text-slate-200 hover:bg-white/10"}`}>
+					<button onClick={() => setShowSettings((prev) => !prev)} className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs transition ${showSettings ? "bg-cyan-500 text-white" : "text-slate-200 hover:bg-white/10"}`}>
 						<SlidersHorizontal size={15} /> Tune
 					</button>
 				</div>
@@ -104,6 +126,7 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 						<button onClick={() => setActiveTab("audio")} className={tabButtonClass("audio")}>Audio</button>
 						<button onClick={() => setActiveTab("background")} className={tabButtonClass("background")}>Background</button>
 						<button onClick={() => setActiveTab("text")} className={tabButtonClass("text")}>Text / Logo</button>
+						<button onClick={() => setActiveTab("extension")} className={tabButtonClass("extension")}>Extension</button>
 					</div>
 
 					{activeTab === "audio" && (
@@ -129,12 +152,12 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 
 					{activeTab === "background" && (
 						<div className='grid gap-3 md:grid-cols-2 lg:grid-cols-4'>
-							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Scale: {settings.backgroundScale.toFixed(2)}x</span><input type='range' min={0.6} max={2.2} step={0.01} value={settings.backgroundScale} onChange={(event) => onSettingsChange({ ...settings, backgroundScale: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Scale: {settings.backgroundScale.toFixed(2)}x</span><input type='range' min={0.6} max={2} step={0.01} value={settings.backgroundScale} onChange={(event) => onSettingsChange({ ...settings, backgroundScale: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Blur: {settings.backgroundBlur.toFixed(1)} px</span><input type='range' min={0} max={20} step={0.1} value={settings.backgroundBlur} onChange={(event) => onSettingsChange({ ...settings, backgroundBlur: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Wiggle: {settings.backgroundWiggle.toFixed(1)} px</span><input type='range' min={0} max={120} step={0.5} value={settings.backgroundWiggle} onChange={(event) => onSettingsChange({ ...settings, backgroundWiggle: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background X: {Math.round(settings.backgroundX)} px</span><input type='range' min={-960} max={960} step={1} value={settings.backgroundX} onChange={(event) => onSettingsChange({ ...settings, backgroundX: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Y: {Math.round(settings.backgroundY)} px</span><input type='range' min={-540} max={540} step={1} value={settings.backgroundY} onChange={(event) => onSettingsChange({ ...settings, backgroundY: Number(event.target.value) })} /></label>
-							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Strength: {settings.backgroundReactStrength.toFixed(2)}</span><input type='range' min={0} max={0.8} step={0.01} value={settings.backgroundReactStrength} onChange={(event) => onSettingsChange({ ...settings, backgroundReactStrength: Number(event.target.value) })} /></label>
+							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Strength: {settings.backgroundReactStrength.toFixed(2)}</span><input type='range' min={0} max={2} step={0.01} value={settings.backgroundReactStrength} onChange={(event) => onSettingsChange({ ...settings, backgroundReactStrength: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background Glow: {settings.backgroundGlow.toFixed(2)}</span><input type='range' min={0} max={2} step={0.01} value={settings.backgroundGlow} onChange={(event) => onSettingsChange({ ...settings, backgroundGlow: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Min: {settings.backgroundReactMinHz} Hz</span><input type='range' min={0} max={20000} step={10} value={settings.backgroundReactMinHz} onChange={(event) => onSettingsChange({ ...settings, backgroundReactMinHz: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/5 p-2'><span>Background React Max: {settings.backgroundReactMaxHz} Hz</span><input type='range' min={20} max={22000} step={10} value={settings.backgroundReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, backgroundReactMaxHz: Number(event.target.value) })} /></label>
@@ -167,6 +190,52 @@ export function PlaybackControls({ isPlaying, currentTime, duration, volume, isL
 							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Glow: {settings.overlayTextReactGlow.toFixed(2)}</span><input type='range' min={0} max={2} step={0.01} value={settings.overlayTextReactGlow} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactGlow: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Min: {settings.overlayTextReactMinHz} Hz</span><input type='range' min={0} max={20000} step={10} value={settings.overlayTextReactMinHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMinHz: Number(event.target.value) })} /></label>
 							<label className='space-y-1 rounded-lg border border-cyan-400/30 bg-cyan-500/5 p-2'><span>React Max: {settings.overlayTextReactMaxHz} Hz</span><input type='range' min={20} max={22000} step={10} value={settings.overlayTextReactMaxHz} onChange={(event) => onSettingsChange({ ...settings, overlayTextReactMaxHz: Number(event.target.value) })} /></label>
+						</div>
+					)}
+
+					{activeTab === "extension" && (
+						<div className='space-y-3 rounded-lg border border-emerald-400/30 bg-emerald-500/5 p-3 text-slate-100'>
+							<label className='flex items-center justify-between rounded-lg border border-emerald-300/30 bg-emerald-950/30 p-2'>
+								<div>
+									<p className='text-sm font-semibold'>Bật custom extension code</p>
+									<p className='text-[11px] text-slate-300'>Code chạy mỗi frame, dùng object <code>context</code> để vẽ thêm layer.</p>
+								</div>
+								<input type='checkbox' checked={settings.extensionEnabled} onChange={(event) => onSettingsChange({ ...settings, extensionEnabled: event.target.checked })} />
+							</label>
+
+							<div className='rounded-lg border border-white/10 bg-slate-900/60 p-2 text-[11px] text-slate-300'>
+								<p className='font-semibold text-slate-100'>Hướng dẫn nhanh</p>
+								<ul className='mt-1 list-disc space-y-1 pl-4'>
+									<li>Viết JavaScript hợp lệ, không cần <code>function</code>, chỉ cần nội dung xử lý.</li>
+									<li>Dùng <code>context.ctx</code> như canvas 2D context.</li>
+									<li>Có sẵn dữ liệu âm thanh: <code>context.frequencyData</code>, <code>context.timeData</code>, <code>context.bassIntensity</code>.</li>
+									<li>Một đoạn code lỗi runtime sẽ tự dừng để tránh spam log.</li>
+								</ul>
+							</div>
+
+							<div className='grid gap-3 md:grid-cols-3'>
+								<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/60 p-2'>
+									<span className='flex items-center justify-between'>
+										<span>Spectrum Extension</span>
+										<button type='button' className='rounded border border-white/15 px-2 py-0.5 text-[10px] hover:bg-white/10' onClick={() => onSettingsChange({ ...settings, extensionSpectrumCode: EXTENSION_SAMPLES.spectrum })}>Mẫu</button>
+									</span>
+									<textarea value={settings.extensionSpectrumCode} onChange={(event) => onSettingsChange({ ...settings, extensionSpectrumCode: event.target.value })} rows={12} className='w-full rounded-md border border-white/10 bg-slate-950/80 p-2 font-mono text-[11px] text-cyan-100' placeholder='// Viết code spectrum mở rộng ở đây' />
+								</label>
+								<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/60 p-2'>
+									<span className='flex items-center justify-between'>
+										<span>Background Extension</span>
+										<button type='button' className='rounded border border-white/15 px-2 py-0.5 text-[10px] hover:bg-white/10' onClick={() => onSettingsChange({ ...settings, extensionBackgroundCode: EXTENSION_SAMPLES.background })}>Mẫu</button>
+									</span>
+									<textarea value={settings.extensionBackgroundCode} onChange={(event) => onSettingsChange({ ...settings, extensionBackgroundCode: event.target.value })} rows={12} className='w-full rounded-md border border-white/10 bg-slate-950/80 p-2 font-mono text-[11px] text-fuchsia-100' placeholder='// Viết code background mở rộng ở đây' />
+								</label>
+								<label className='space-y-1 rounded-lg border border-white/10 bg-slate-900/60 p-2'>
+									<span className='flex items-center justify-between'>
+										<span>Text Extension</span>
+										<button type='button' className='rounded border border-white/15 px-2 py-0.5 text-[10px] hover:bg-white/10' onClick={() => onSettingsChange({ ...settings, extensionTextCode: EXTENSION_SAMPLES.text })}>Mẫu</button>
+									</span>
+									<textarea value={settings.extensionTextCode} onChange={(event) => onSettingsChange({ ...settings, extensionTextCode: event.target.value })} rows={12} className='w-full rounded-md border border-white/10 bg-slate-950/80 p-2 font-mono text-[11px] text-amber-100' placeholder='// Viết code text mở rộng ở đây' />
+								</label>
+							</div>
 						</div>
 					)}
 				</div>

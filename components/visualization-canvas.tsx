@@ -44,6 +44,42 @@ export interface SpectrumSettings {
 	backgroundGlow: number;
 	backgroundReactMinHz: number;
 	backgroundReactMaxHz: number;
+	extensionEnabled: boolean;
+	extensionSpectrumCode: string;
+	extensionBackgroundCode: string;
+	extensionTextCode: string;
+}
+
+interface ExtensionContext {
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	height: number;
+	settings: SpectrumSettings;
+	frequencyData: Uint8Array;
+	timeData: Uint8Array;
+	sampleRate: number;
+	bassIntensity: number;
+	textReact: number;
+	backgroundReact: number;
+	currentTime: number;
+	duration: number;
+	deltaMs: number;
+	mode: VisualizationMode;
+}
+
+type ExtensionFunction = (context: ExtensionContext) => void;
+
+function compileExtension(code: string): ExtensionFunction | null {
+	const trimmed = code.trim();
+	if (!trimmed) return null;
+
+	try {
+		const fn = new Function("context", `"use strict"; ${trimmed}`) as ExtensionFunction;
+		return fn;
+	} catch (error) {
+		console.warn("[extension] Failed to compile custom code", error);
+		return null;
+	}
 }
 
 interface Particle {
@@ -444,6 +480,25 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 	const overlayImageRef = useRef<HTMLImageElement | null>(null);
 	const screenParticlesRef = useRef<Particle[]>([]);
 	const exportParticlesRef = useRef<Particle[]>([]);
+	const spectrumExtensionRef = useRef<ExtensionFunction | null>(null);
+	const backgroundExtensionRef = useRef<ExtensionFunction | null>(null);
+	const textExtensionRef = useRef<ExtensionFunction | null>(null);
+	const extensionErrorRef = useRef({ spectrum: false, background: false, text: false });
+
+	useEffect(() => {
+		spectrumExtensionRef.current = compileExtension(settings.extensionSpectrumCode);
+		extensionErrorRef.current.spectrum = false;
+	}, [settings.extensionSpectrumCode]);
+
+	useEffect(() => {
+		backgroundExtensionRef.current = compileExtension(settings.extensionBackgroundCode);
+		extensionErrorRef.current.background = false;
+	}, [settings.extensionBackgroundCode]);
+
+	useEffect(() => {
+		textExtensionRef.current = compileExtension(settings.extensionTextCode);
+		extensionErrorRef.current.text = false;
+	}, [settings.extensionTextCode]);
 
 	useEffect(() => {
 		if (!backgroundImage) {
@@ -524,12 +579,47 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 
 				drawBackground(ctx, width, height, bassIntensity, backgroundReact, imageRef.current, settings, smoothBassRef, particles, deltaMs);
 
+				const extensionContext: ExtensionContext = {
+					ctx,
+					width,
+					height,
+					settings,
+					frequencyData,
+					timeData,
+					sampleRate,
+					bassIntensity,
+					textReact,
+					backgroundReact,
+					currentTime,
+					duration,
+					deltaMs,
+					mode,
+				};
+
+				if (settings.extensionEnabled && backgroundExtensionRef.current && !extensionErrorRef.current.background) {
+					try {
+						backgroundExtensionRef.current(extensionContext);
+					} catch (error) {
+						extensionErrorRef.current.background = true;
+						console.warn("[extension] Background code runtime error", error);
+					}
+				}
+
 				if (mode === "bars") {
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
 				} else if (mode === "waveform") {
 					drawWaveform(ctx, timeData, width, height, settings);
 				} else {
 					drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
+				}
+
+				if (settings.extensionEnabled && spectrumExtensionRef.current && !extensionErrorRef.current.spectrum) {
+					try {
+						spectrumExtensionRef.current(extensionContext);
+					} catch (error) {
+						extensionErrorRef.current.spectrum = true;
+						console.warn("[extension] Spectrum code runtime error", error);
+					}
 				}
 
 				const offsetSec = Math.max(0, settings.audioOffsetMs / 1000);
@@ -542,6 +632,16 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				} else {
 					drawOverlayText(ctx, width, height, settings, bassIntensity, textReact);
 				}
+
+				if (settings.extensionEnabled && textExtensionRef.current && !extensionErrorRef.current.text) {
+					try {
+						textExtensionRef.current(extensionContext);
+					} catch (error) {
+						extensionErrorRef.current.text = true;
+						console.warn("[extension] Text code runtime error", error);
+					}
+				}
+
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
