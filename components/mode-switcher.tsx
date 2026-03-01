@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, Circle, Waves } from 'lucide-react';
+import { AudioLines, BarChart3, Circle, Waves } from 'lucide-react';
 import type { VisualizationMode } from './visualization-canvas';
 
 interface ModeSwitcherProps {
@@ -17,6 +17,16 @@ const modes: { id: VisualizationMode; label: string; icon: React.ReactNode }[] =
   {
     id: 'waveform',
     label: 'Waveform',
+    icon: <Waves size={20} />,
+  },
+  {
+    id: 'reflective',
+    label: 'Reflective',
+    icon: <AudioLines size={20} />,
+  },
+  {
+    id: 'layered-wave',
+    label: 'Layered Wave',
     icon: <Waves size={20} />,
   },
   {

@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Circle, Pause, Play, SlidersHorizontal, Volume2, Waves } from "lucide-react";
+import { AudioLines, BarChart3, Circle, Pause, Play, SlidersHorizontal, Volume2, Waves } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { SpectrumColorScheme, SpectrumSettings, VisualizationMode } from "./visualization-canvas";
@@ -24,6 +24,8 @@ interface PlaybackControlsProps {
 const MODES: { id: VisualizationMode; icon: ReactNode; label: string }[] = [
 	{ id: "bars", icon: <BarChart3 size={16} />, label: "Bars" },
 	{ id: "waveform", icon: <Waves size={16} />, label: "Waveform" },
+	{ id: "reflective", icon: <AudioLines size={16} />, label: "Reflective" },
+	{ id: "layered-wave", icon: <Waves size={16} />, label: "Layered Wave" },
 	{ id: "circular", icon: <Circle size={16} />, label: "Circular" },
 ];
 
