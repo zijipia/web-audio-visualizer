@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BassPulseBackground } from "@/components/bass-pulse-background";
 import { FileUpload } from "@/components/file-upload";
 import { PlaybackControls } from "@/components/playback-controls";
 import { VideoExport } from "@/components/video-export";
@@ -78,11 +77,6 @@ export function AudioVisualizer() {
 
 	return (
 		<main className='relative h-screen w-full overflow-hidden text-slate-100'>
-			<BassPulseBackground
-				bassIntensity={bassIntensity}
-				backgroundImage={backgroundImage}
-			/>
-
 			<VisualizationCanvas
 				frequencyData={audio.frequencyData}
 				timeData={audio.timeData}
@@ -91,6 +85,8 @@ export function AudioVisualizer() {
 				duration={audio.state.duration}
 				currentTime={audio.state.currentTime}
 				onSeek={audio.seek}
+				bassIntensity={bassIntensity}
+				backgroundImage={backgroundImage}
 				onExportCanvasReady={setExportCanvas}
 				settings={settings}
 			/>
@@ -105,7 +101,7 @@ export function AudioVisualizer() {
 
 			<VideoExport
 				exportCanvas={exportCanvas}
-				recordingAudioStream={audio.getRecordingStream()}
+				renderAudioStream={audio.getRecordingStream()}
 				duration={audio.state.duration}
 				currentTime={audio.state.currentTime}
 			/>

@@ -5,26 +5,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface VideoExportProps {
   exportCanvas: HTMLCanvasElement | null;
-  recordingAudioStream: MediaStream | null;
+  renderAudioStream: MediaStream | null;
   duration: number;
   currentTime: number;
 }
 
-interface RecordingState {
-  isRecording: boolean;
+interface RenderState {
+  isRendering: boolean;
   isProcessing: boolean;
-  recordedBlobUrl: string | null;
+  renderedBlobUrl: string | null;
 }
 
-export function VideoExport({ exportCanvas, recordingAudioStream, duration, currentTime }: VideoExportProps) {
+export function VideoExport({ exportCanvas, renderAudioStream, duration, currentTime }: VideoExportProps) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
-  const [state, setState] = useState<RecordingState>({
-    isRecording: false,
+  const [state, setState] = useState<RenderState>({
+    isRendering: false,
     isProcessing: false,
-    recordedBlobUrl: null,
+    renderedBlobUrl: null,
   });
 
   const estimatedSize = useMemo(() => {
@@ -35,10 +35,10 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
 
   const cleanupUrl = useCallback(() => {
     setState((prev) => {
-      if (prev.recordedBlobUrl) {
-        URL.revokeObjectURL(prev.recordedBlobUrl);
+      if (prev.renderedBlobUrl) {
+        URL.revokeObjectURL(prev.renderedBlobUrl);
       }
-      return { ...prev, recordedBlobUrl: null };
+      return { ...prev, renderedBlobUrl: null };
     });
   }, []);
 
@@ -49,7 +49,7 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
     };
   }, [cleanupUrl]);
 
-  const startRecording = useCallback(() => {
+  const startRender = useCallback(() => {
     if (!exportCanvas) {
       window.alert('Visualizer canvas is not ready yet.');
       return;
@@ -61,7 +61,7 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
     const mergedStream = new MediaStream();
 
     videoStream.getVideoTracks().forEach((track) => mergedStream.addTrack(track));
-    recordingAudioStream?.getAudioTracks().forEach((track) => mergedStream.addTrack(track));
+    renderAudioStream?.getAudioTracks().forEach((track) => mergedStream.addTrack(track));
 
     streamRef.current = mergedStream;
 
@@ -85,52 +85,52 @@ export function VideoExport({ exportCanvas, recordingAudioStream, duration, curr
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mimeType });
       const url = URL.createObjectURL(blob);
-      setState((prev) => ({ ...prev, isRecording: false, isProcessing: false, recordedBlobUrl: url }));
+      setState((prev) => ({ ...prev, isRendering: false, isProcessing: false, renderedBlobUrl: url }));
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
 
-    setState((prev) => ({ ...prev, isRecording: true, isProcessing: false }));
+    setState((prev) => ({ ...prev, isRendering: true, isProcessing: false }));
     recorder.start(250);
-  }, [cleanupUrl, exportCanvas, recordingAudioStream]);
+  }, [cleanupUrl, exportCanvas, renderAudioStream]);
 
-  const stopRecording = useCallback(() => {
+  const stopRender = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       setState((prev) => ({ ...prev, isProcessing: true }));
       recorderRef.current.stop();
     }
   }, []);
 
-  const downloadRecording = useCallback(() => {
-    if (!state.recordedBlobUrl) return;
+  const downloadRender = useCallback(() => {
+    if (!state.renderedBlobUrl) return;
     const link = document.createElement('a');
-    link.href = state.recordedBlobUrl;
+    link.href = state.renderedBlobUrl;
     link.download = `visualization_${Date.now()}.webm`;
     link.click();
-  }, [state.recordedBlobUrl]);
+  }, [state.renderedBlobUrl]);
 
   return (
     <div className="pointer-events-auto fixed right-3 top-3 z-30 w-[min(300px,calc(100vw-1.5rem))] rounded-2xl border border-white/10 bg-slate-950/40 p-3 backdrop-blur-xl">
-      <h2 className="mb-2 text-sm font-semibold text-slate-100">Video Export</h2>
+      <h2 className="mb-2 text-sm font-semibold text-slate-100">Video Render</h2>
       <p className="text-xs text-slate-300">Estimated size: {estimatedSize}</p>
       <p className="mb-3 text-xs text-slate-300">Duration: {Math.round(duration || currentTime)}s</p>
 
       <div className="flex items-center gap-2">
         <button
-          onClick={state.isRecording ? stopRecording : startRecording}
+          onClick={state.isRendering ? stopRender : startRender}
           className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
-            state.isRecording
+            state.isRendering
               ? 'bg-red-500/20 text-red-100 hover:bg-red-500/30'
               : 'bg-cyan-500/20 text-cyan-100 hover:bg-cyan-500/30'
           }`}
         >
           {state.isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />}
-          {state.isRecording ? 'Stop Recording' : 'Start Recording'}
+          {state.isRendering ? 'Stop Render' : 'Start Render'}
         </button>
 
         <button
-          onClick={downloadRecording}
-          disabled={!state.recordedBlobUrl}
+          onClick={downloadRender}
+          disabled={!state.renderedBlobUrl}
           className="flex items-center gap-2 rounded-lg bg-emerald-500/20 px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <Download size={16} /> Download
