@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FileUpload } from "@/components/file-upload";
 import { PlaybackControls } from "@/components/playback-controls";
 import { VideoExport } from "@/components/video-export";
@@ -63,16 +63,9 @@ export function AudioVisualizer() {
 	const [exportCanvas, setExportCanvas] = useState<HTMLCanvasElement | null>(null);
 	const [settings, setSettings] = useState<SpectrumSettings>(DEFAULT_SETTINGS);
 
-	const bassIntensity = useMemo(() => {
-		if (!audio.frequencyData.length) return 0;
-		const maxFrequency = 256;
-		const nyquist = (audio.audioContext?.sampleRate ?? 44100) / 2;
-		const count = Math.max(1, Math.floor((maxFrequency / nyquist) * audio.frequencyData.length));
-
-		let sum = 0;
-		for (let i = 0; i < count; i += 1) sum += audio.frequencyData[i] ?? 0;
-		return Math.min(1, (sum / count / 255) * settings.sensitivity);
-	}, [audio.audioContext?.sampleRate, audio.frequencyData, audio.state.currentTime, settings.sensitivity]);
+	const bassIntensity = Math.min(1, audio.frequencyBands.bass * settings.sensitivity);
+	const midIntensity = Math.min(1, audio.frequencyBands.mid * settings.sensitivity);
+	const trebleIntensity = Math.min(1, audio.frequencyBands.treble * settings.sensitivity);
 
 	const loadAudio = useCallback(
 		async (file: File) => {
@@ -180,6 +173,21 @@ export function AudioVisualizer() {
 				onSeek={audio.seek}
 				onVolumeChange={audio.setVolume}
 			/>
+
+			<div className='pointer-events-none absolute right-3 top-3 z-30 rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-xs text-slate-200 backdrop-blur-xl md:right-8 md:top-8'>
+				<p className='mb-1 font-medium text-slate-100'>Audio bands (Hz)</p>
+				<ul className='space-y-0.5 font-mono'>
+					<li>
+						Bass {audio.frequencyBands.ranges.bass.minHz}-{audio.frequencyBands.ranges.bass.maxHz}: {Math.round(bassIntensity * 100)}%
+					</li>
+					<li>
+						Mid {audio.frequencyBands.ranges.mid.minHz}-{audio.frequencyBands.ranges.mid.maxHz}: {Math.round(midIntensity * 100)}%
+					</li>
+					<li>
+						Treble {audio.frequencyBands.ranges.treble.minHz}-{audio.frequencyBands.ranges.treble.maxHz}: {Math.round(trebleIntensity * 100)}%
+					</li>
+				</ul>
+			</div>
 
 			{!audio.audioElement?.src && (
 				<div className='pointer-events-none absolute inset-0 flex items-center justify-center'>

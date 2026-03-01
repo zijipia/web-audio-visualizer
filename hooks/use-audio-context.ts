@@ -16,6 +16,7 @@ export interface UseAudioContextReturn {
   analyser: AnalyserNode | null;
   frequencyData: Uint8Array;
   timeData: Uint8Array;
+  frequencyBands: FrequencyBands;
   audioElement: HTMLAudioElement | null;
   loadAudio: (file: File) => Promise<void>;
   play: () => Promise<void>;
@@ -24,6 +25,52 @@ export interface UseAudioContextReturn {
   setVolume: (vol: number) => void;
   getRecordingStream: () => MediaStream | null;
   cleanup: () => void;
+}
+
+export interface FrequencyBandRange {
+  minHz: number;
+  maxHz: number;
+}
+
+export interface FrequencyBands {
+  bass: number;
+  mid: number;
+  treble: number;
+  bassIntensity: number;
+  ranges: {
+    bass: FrequencyBandRange;
+    mid: FrequencyBandRange;
+    treble: FrequencyBandRange;
+  };
+}
+
+const BAND_RANGES: FrequencyBands['ranges'] = {
+  bass: { minHz: 20, maxHz: 250 },
+  mid: { minHz: 250, maxHz: 4000 },
+  treble: { minHz: 4000, maxHz: 20000 },
+};
+
+function calculateBandEnergy(data: Uint8Array, sampleRate: number, range: FrequencyBandRange): number {
+  if (!data.length || sampleRate <= 0) {
+    return 0;
+  }
+
+  const nyquist = sampleRate / 2;
+  const minIndex = Math.max(0, Math.floor((range.minHz / nyquist) * data.length));
+  const maxIndex = Math.min(data.length - 1, Math.ceil((range.maxHz / nyquist) * data.length));
+
+  if (maxIndex < minIndex) {
+    return 0;
+  }
+
+  let sum = 0;
+  let count = 0;
+  for (let index = minIndex; index <= maxIndex; index += 1) {
+    sum += data[index] ?? 0;
+    count += 1;
+  }
+
+  return count > 0 ? sum / count / 255 : 0;
 }
 
 let sharedAudioContext: AudioContext | null = null;
@@ -47,6 +94,13 @@ export function useAudioContext(): UseAudioContextReturn {
 
   const frequencyDataRef = useRef<Uint8Array>(new Uint8Array(1024));
   const timeDataRef = useRef<Uint8Array>(new Uint8Array(1024));
+  const frequencyBandsRef = useRef<FrequencyBands>({
+    bass: 0,
+    mid: 0,
+    treble: 0,
+    bassIntensity: 0,
+    ranges: BAND_RANGES,
+  });
 
   const initializeAudioContext = useCallback(() => {
     if (audioContextRef.current) {
@@ -213,6 +267,19 @@ export function useAudioContext(): UseAudioContextReturn {
       if (analyserRef.current) {
         analyserRef.current.getByteFrequencyData(frequencyDataRef.current);
         analyserRef.current.getByteTimeDomainData(timeDataRef.current);
+
+        const sampleRate = audioContextRef.current?.sampleRate ?? 44100;
+        const bass = calculateBandEnergy(frequencyDataRef.current, sampleRate, BAND_RANGES.bass);
+        const mid = calculateBandEnergy(frequencyDataRef.current, sampleRate, BAND_RANGES.mid);
+        const treble = calculateBandEnergy(frequencyDataRef.current, sampleRate, BAND_RANGES.treble);
+
+        frequencyBandsRef.current = {
+          bass,
+          mid,
+          treble,
+          bassIntensity: bass,
+          ranges: BAND_RANGES,
+        };
       }
       frameId = requestAnimationFrame(tick);
     };
@@ -233,6 +300,7 @@ export function useAudioContext(): UseAudioContextReturn {
     analyser: analyserRef.current,
     frequencyData: frequencyDataRef.current,
     timeData: timeDataRef.current,
+    frequencyBands: frequencyBandsRef.current,
     audioElement: audioElementRef.current,
     loadAudio,
     play,
