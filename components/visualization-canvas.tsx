@@ -23,6 +23,7 @@ export interface SpectrumSettings {
 	colorScheme: SpectrumColorScheme;
 	mirror: boolean;
 	overlayText: string;
+	overlayMode: "text" | "logo";
 	overlayTextSize: number;
 	overlayTextY: number;
 	overlayTextOpacity: number;
@@ -67,6 +68,7 @@ interface VisualizationCanvasProps {
 	settings: SpectrumSettings;
 	bassIntensity: number;
 	backgroundImage: string | null;
+	overlayImage: string | null;
 }
 
 function resolveFrequencyRange(data: Uint8Array, sampleRate: number, settings: SpectrumSettings) {
@@ -390,6 +392,34 @@ function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: n
 	ctx.restore();
 }
 
+function drawOverlayLogo(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number, textReact: number, logoImage: HTMLImageElement | null) {
+	if (!logoImage) return;
+
+	const y = Math.max(40, Math.min(height - 24, settings.overlayTextY));
+	const x = width / 2 + settings.overlayTextX;
+	const alpha = Math.max(0, Math.min(1, settings.overlayTextOpacity));
+	const react = Math.max(0, Math.min(1, textReact));
+	const dynamicScale = settings.overlayTextScale + react * settings.overlayTextReactStrength;
+	const wiggle = settings.overlayTextWiggle * react;
+	const wiggleX = Math.sin(performance.now() * 0.01) * wiggle;
+	const wiggleY = Math.cos(performance.now() * 0.012) * wiggle;
+
+	const aspectRatio = logoImage.naturalWidth / Math.max(1, logoImage.naturalHeight);
+	const baseHeight = Math.max(24, settings.overlayTextSize);
+	const drawHeight = baseHeight;
+	const drawWidth = drawHeight * aspectRatio;
+
+	ctx.save();
+	ctx.translate(x + wiggleX, y + wiggleY);
+	ctx.scale(dynamicScale, dynamicScale);
+	ctx.globalAlpha = alpha;
+	ctx.filter = `blur(${settings.overlayTextBlur + react * settings.overlayTextBlur * 0.7}px)`;
+	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4 + react * settings.overlayTextReactGlow * 0.6})`;
+	ctx.shadowBlur = 14 + bassIntensity * 24 + react * settings.overlayTextReactGlow * 36;
+	ctx.drawImage(logoImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+	ctx.restore();
+}
+
 function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: number, duration: number, currentTime: number) {
 	if (!duration) return;
 	const progress = Math.max(0, Math.min(1, currentTime / duration));
@@ -404,13 +434,14 @@ function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: numb
 	ctx.fillRect(0, height - 8, width * progress, 8);
 }
 
-export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode, duration, currentTime, onSeek, onExportCanvasReady, settings, bassIntensity, backgroundImage }: VisualizationCanvasProps) {
+export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode, duration, currentTime, onSeek, onExportCanvasReady, settings, bassIntensity, backgroundImage, overlayImage }: VisualizationCanvasProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const barDisplayStateRef = useRef<Float32Array>(new Float32Array(512));
 	const lastFrameTimeRef = useRef<number>(performance.now());
 	const smoothBassRef = useRef<number>(0);
 	const imageRef = useRef<HTMLImageElement | null>(null);
+	const overlayImageRef = useRef<HTMLImageElement | null>(null);
 	const screenParticlesRef = useRef<Particle[]>([]);
 	const exportParticlesRef = useRef<Particle[]>([]);
 
@@ -425,6 +456,18 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 		image.src = backgroundImage;
 		imageRef.current = image;
 	}, [backgroundImage]);
+
+	useEffect(() => {
+		if (!overlayImage) {
+			overlayImageRef.current = null;
+			return;
+		}
+
+		const image = new Image();
+		image.decoding = "async";
+		image.src = overlayImage;
+		overlayImageRef.current = image;
+	}, [overlayImage]);
 
 	useEffect(() => {
 		const exportCanvas = document.createElement("canvas");
@@ -494,7 +537,11 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
 				const effectiveTime = Math.max(0, currentTime - offsetSec);
 
-				drawOverlayText(ctx, width, height, settings, bassIntensity, textReact);
+				if (settings.overlayMode === "logo") {
+					drawOverlayLogo(ctx, width, height, settings, bassIntensity, textReact, overlayImageRef.current);
+				} else {
+					drawOverlayText(ctx, width, height, settings, bassIntensity, textReact);
+				}
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
