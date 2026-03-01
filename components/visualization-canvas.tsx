@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-export type VisualizationMode = "bars" | "waveform" | "circular";
+export type VisualizationMode = "bars" | "waveform" | "circular" | "ridgeReflection" | "dualLayerWave";
 export type SpectrumColorScheme = "sunset" | "neon" | "fire";
 
 export interface SpectrumSettings {
@@ -219,6 +219,40 @@ function resolveBandEnergy(data: Uint8Array, sampleRate: number, minHz: number, 
 	return Math.max(0, Math.min(1, (average / 255) * sensitivity));
 }
 
+
+function hzToIndex(dataLength: number, sampleRate: number, hz: number) {
+	const nyquist = sampleRate / 2;
+	const safeHz = Math.max(0, Math.min(hz, nyquist));
+	return Math.max(0, Math.min(dataLength - 1, Math.floor((safeHz / nyquist) * dataLength)));
+}
+
+function profileFrequencyEnergy(normalized: number, centerHz: number) {
+	if (centerHz <= 220) return Math.min(1, normalized * 1.35);
+	if (centerHz <= 2400) return Math.min(1, normalized * 1.12);
+	return Math.min(1, normalized * 1.22);
+}
+
+function sampleSpectrumAtRatio(data: Uint8Array, sampleRate: number, settings: SpectrumSettings, ratio: number) {
+	if (!data.length) return 0;
+	const nyquist = sampleRate / 2;
+	const minHz = Math.max(1, Math.min(settings.startFrequency, nyquist));
+	const maxHz = Math.max(minHz + 1, Math.min(settings.endFrequency, nyquist));
+	const centerHz = minHz * Math.pow(maxHz / minHz, Math.max(0, Math.min(1, ratio)));
+	const bandwidth = Math.max(20, centerHz * 0.18);
+	const startHz = Math.max(minHz, centerHz - bandwidth / 2);
+	const endHz = Math.min(maxHz, centerHz + bandwidth / 2);
+	const start = hzToIndex(data.length, sampleRate, startHz);
+	const end = Math.max(start + 1, hzToIndex(data.length, sampleRate, endHz));
+
+	let sum = 0;
+	for (let i = start; i <= end; i += 1) {
+		sum += data[i] ?? 0;
+	}
+	const avg = sum / Math.max(1, end - start + 1);
+	const normalized = Math.min(1, (avg / 255) * settings.sensitivity);
+	return Math.pow(profileFrequencyEnergy(normalized, centerHz), 1.35);
+}
+
 function drawBackground(
 	ctx: CanvasRenderingContext2D,
 	width: number,
@@ -309,11 +343,7 @@ function drawBackground(
 }
 
 function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings, displayState: Float32Array, deltaMs: number) {
-	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
-	const usableLength = Math.max(1, endIndex - startIndex);
-
-	const count = Math.max(16, Math.min(settings.frequencyBands, data.length));
-
+	const count = Math.max(16, Math.floor(settings.frequencyBands));
 	const barWidth = width / count;
 	const gradient = createGradient(ctx, 0, height, settings.colorScheme);
 	const maxDrawableHeight = height * (settings.maxHeight / 1000);
@@ -329,10 +359,8 @@ function drawBars(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number
 	const halfWidth = Math.max(1, barWidth / (settings.mirror ? 2 : 1) - 1.5);
 
 	for (let i = 0; i < count; i += 1) {
-		const sourceIndex = startIndex + Math.floor((i / count) * Math.max(1, usableLength - 1));
-
-		const value = Math.min(1, ((data[sourceIndex] ?? 0) / 255) * settings.sensitivity);
-
+		const ratio = i / Math.max(1, count - 1);
+		const value = sampleSpectrumAtRatio(data, sampleRate, settings, ratio);
 		const targetHeight = value * maxDrawableHeight;
 		const easedHeight = Math.max(targetHeight, (displayState[i] ?? 0) - decayPerFrame);
 		displayState[i] = easedHeight;
@@ -399,10 +427,7 @@ function drawWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 }
 
 function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
-	const { startIndex, endIndex } = resolveFrequencyRange(data, sampleRate, settings);
-	const rangeLength = Math.max(1, endIndex - startIndex);
 	const bars = Math.max(64, settings.frequencyBands * 2);
-	const step = Math.max(1, Math.floor(rangeLength / bars));
 
 	ctx.fillStyle = `rgba(10,14,39,${0.1 + (1 - settings.softness) * 0.22})`;
 	ctx.fillRect(0, 0, width, height);
@@ -412,13 +437,11 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 
 	const baseRadius = Math.min(cx, cy) * 0.24;
 	const maxAmp = Math.min(cx, cy) * (0.32 + settings.maxHeight / 1200);
-
 	const spin = (performance.now() / 1000) * settings.rotationSpeed;
 
 	ctx.save();
 	ctx.translate(cx, cy);
 	ctx.rotate(spin);
-
 	ctx.lineWidth = Math.max(1.5, settings.thickness * 0.7);
 	ctx.lineCap = "round";
 
@@ -426,21 +449,21 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 		ctx.shadowBlur = settings.glow * 1.5;
 	}
 
-	// const sweep = settings.mirror ? Math.PI : Math.PI * 2;
-	const sweep = Math.PI * 2;
-
-	function drawBar(angle: number, energy: number) {
+	for (let i = 0; i < bars; i += 1) {
+		const ratio = i / Math.max(1, bars - 1);
+		const mirroredRatio = settings.mirror ? (ratio <= 0.5 ? ratio * 2 : (1 - ratio) * 2) : ratio;
+		const energy = sampleSpectrumAtRatio(data, sampleRate, settings, mirroredRatio);
+		const angle = ratio * Math.PI * 2 - Math.PI / 2;
 		const amp = energy * maxAmp;
+
 		const r1 = baseRadius;
 		const r2 = baseRadius + amp;
-
 		const x1 = Math.cos(angle) * r1;
 		const y1 = Math.sin(angle) * r1;
 		const x2 = Math.cos(angle) * r2;
 		const y2 = Math.sin(angle) * r2;
 
-		const hue = (angle / (Math.PI * 2)) * 360 + 180;
-
+		const hue = settings.colorScheme === "fire" ? 10 + energy * 60 : (ratio * 360 + (settings.colorScheme === "neon" ? 180 : 0));
 		ctx.strokeStyle = `hsla(${hue},95%,${55 + energy * 20}%,${0.45 + energy * 0.55})`;
 		ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,0.85)` : "transparent";
 
@@ -449,60 +472,138 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 		ctx.lineTo(x2, y2);
 		ctx.stroke();
 	}
-	if (settings.mirror) {
-		const half = Math.floor(rangeLength / 2);
 
-		for (let i = 0; i < half; i += step) {
-			const idx1 = startIndex + i;
-			const idx2 = startIndex + (half - i);
+	ctx.restore();
+}
 
-			let e1 = (data[idx1] ?? 0) / 255;
-			let e2 = (data[idx2] ?? 0) / 255;
+function buildSpectrumEnvelope(data: Uint8Array, sampleRate: number, settings: SpectrumSettings, points: number) {
+	const values = new Float32Array(points);
 
-			e1 = Math.pow(e1 * settings.sensitivity, 0.65);
-			e2 = Math.pow(e2 * settings.sensitivity, 0.65);
-
-			const a1 = (i / half) * Math.PI * 2 - Math.PI / 2;
-			const a2 = ((i + half) / half) * Math.PI * 2 - Math.PI / 2;
-
-			drawBar(a1, e1);
-			drawBar(a2, e2);
-		}
-	} else {
-		for (let i = 0; i < rangeLength; i += step) {
-			const index = startIndex + i;
-
-			let energy = (data[index] ?? 0) / 255;
-
-			// Anti-spike smoothing
-			energy = Math.pow(energy * settings.sensitivity, 0.65);
-			energy = Math.min(1, energy);
-
-			const angle = (i / rangeLength) * sweep - Math.PI / 2;
-			const amp = energy * maxAmp;
-
-			const r1 = baseRadius;
-			const r2 = baseRadius + amp;
-
-			const x1 = Math.cos(angle) * r1;
-			const y1 = Math.sin(angle) * r1;
-			const x2 = Math.cos(angle) * r2;
-			const y2 = Math.sin(angle) * r2;
-
-			let hue;
-			if (settings.colorScheme === "neon") hue = (i / rangeLength) * 360 + 180;
-			else if (settings.colorScheme === "fire") hue = 10 + energy * 60;
-			else hue = (i / rangeLength) * 360;
-
-			ctx.strokeStyle = `hsla(${hue}, 95%, ${55 + energy * 20}%, ${0.5 + energy * 0.5})`;
-			ctx.shadowColor = settings.glow ? `hsla(${hue},100%,65%,0.85)` : "transparent";
-
-			ctx.beginPath();
-			ctx.moveTo(x1, y1);
-			ctx.lineTo(x2, y2);
-			ctx.stroke();
-		}
+	for (let i = 0; i < points; i += 1) {
+		const ratio = i / Math.max(1, points - 1);
+		values[i] = sampleSpectrumAtRatio(data, sampleRate, settings, ratio);
 	}
+
+	const smoothed = new Float32Array(points);
+	for (let i = 0; i < points; i += 1) {
+		let total = 0;
+		let weightSum = 0;
+		for (let offset = -3; offset <= 3; offset += 1) {
+			const idx = Math.max(0, Math.min(points - 1, i + offset));
+			const weight = 4 - Math.abs(offset);
+			total += values[idx] * weight;
+			weightSum += weight;
+		}
+		smoothed[i] = total / Math.max(1, weightSum);
+	}
+
+	return smoothed;
+}
+
+function drawRidgeReflection(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	const pointCount = Math.max(96, Math.floor(width / 18));
+	const envelope = buildSpectrumEnvelope(data, sampleRate, settings, pointCount);
+	const horizon = height * 0.62;
+	const amplitude = height * (0.08 + settings.maxHeight / 2000);
+
+	ctx.save();
+	ctx.lineJoin = "round";
+	ctx.lineCap = "round";
+	ctx.shadowColor = "rgba(255,255,255,0.65)";
+	ctx.shadowBlur = settings.glow * 1.2;
+
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	for (let i = 0; i < pointCount; i += 1) {
+		const x = (i / Math.max(1, pointCount - 1)) * width;
+		const y = horizon - envelope[i] * amplitude;
+		ctx.lineTo(x, y);
+	}
+	ctx.lineTo(width, horizon);
+	ctx.closePath();
+
+	const fill = ctx.createLinearGradient(0, horizon - amplitude, 0, horizon);
+	fill.addColorStop(0, "rgba(255,255,255,0.95)");
+	fill.addColorStop(1, "rgba(255,255,255,0.7)");
+	ctx.fillStyle = fill;
+	ctx.fill();
+
+	ctx.beginPath();
+	for (let i = 0; i < pointCount; i += 1) {
+		const x = (i / Math.max(1, pointCount - 1)) * width;
+		const y = horizon - envelope[i] * amplitude;
+		if (i === 0) ctx.moveTo(x, y);
+		else ctx.lineTo(x, y);
+	}
+	ctx.strokeStyle = "rgba(236, 240, 244, 0.95)";
+	ctx.lineWidth = Math.max(1.5, settings.thickness * 0.9);
+	ctx.stroke();
+
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	for (let i = 0; i < pointCount; i += 1) {
+		const x = (i / Math.max(1, pointCount - 1)) * width;
+		const y = horizon + envelope[i] * amplitude * 0.9;
+		ctx.lineTo(x, y);
+	}
+	ctx.lineTo(width, horizon + amplitude * 0.95);
+	ctx.lineTo(0, horizon + amplitude * 0.95);
+	ctx.closePath();
+
+	const reflection = ctx.createLinearGradient(0, horizon, 0, horizon + amplitude);
+	reflection.addColorStop(0, "rgba(241,245,249,0.35)");
+	reflection.addColorStop(1, "rgba(241,245,249,0)");
+	ctx.fillStyle = reflection;
+	ctx.fill();
+
+	ctx.strokeStyle = "rgba(248, 250, 252, 0.85)";
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	ctx.lineTo(width, horizon);
+	ctx.stroke();
+
+	ctx.restore();
+}
+
+function drawDualLayerWave(ctx: CanvasRenderingContext2D, data: Uint8Array, width: number, height: number, sampleRate: number, settings: SpectrumSettings) {
+	const pointCount = Math.max(120, Math.floor(width / 16));
+	const envelope = buildSpectrumEnvelope(data, sampleRate, settings, pointCount);
+	const horizon = height * 0.7;
+	const maxHeight = height * (0.1 + settings.maxHeight / 1800);
+
+	const drawLayer = (gain: number, fillStart: string, fillEnd: string) => {
+		ctx.beginPath();
+		ctx.moveTo(0, horizon);
+		for (let i = 0; i < pointCount; i += 1) {
+			const x = (i / Math.max(1, pointCount - 1)) * width;
+			const wave = Math.sin(i * 0.08 + performance.now() * 0.0012) * 0.06;
+			const y = horizon - (envelope[i] + wave) * maxHeight * gain;
+			ctx.lineTo(x, y);
+		}
+		ctx.lineTo(width, horizon);
+		ctx.closePath();
+
+		const fill = ctx.createLinearGradient(0, horizon - maxHeight, 0, horizon);
+		fill.addColorStop(0, fillStart);
+		fill.addColorStop(1, fillEnd);
+		ctx.fillStyle = fill;
+		ctx.fill();
+	};
+
+	ctx.save();
+	ctx.shadowBlur = settings.glow;
+	ctx.shadowColor = "rgba(34, 211, 238, 0.35)";
+
+	drawLayer(1, "rgba(255,255,255,0.98)", "rgba(255,255,255,0.9)");
+	drawLayer(0.75, "rgba(34,211,238,0.95)", "rgba(34,211,238,0.85)");
+
+	ctx.strokeStyle = "rgba(248,250,252,0.98)";
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.moveTo(0, horizon);
+	ctx.lineTo(width, horizon);
+	ctx.stroke();
 
 	ctx.restore();
 }
@@ -581,7 +682,7 @@ function drawProgress(ctx: CanvasRenderingContext2D, width: number, height: numb
 export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode, duration, currentTime, onSeek, onExportCanvasReady, settings, bassIntensity, backgroundImage, overlayImage }: VisualizationCanvasProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const exportCanvasRef = useRef<HTMLCanvasElement | null>(null);
-	const barDisplayStateRef = useRef<Float32Array>(new Float32Array(512));
+	const barDisplayStateRef = useRef<Float32Array>(new Float32Array(2048));
 	const lastFrameTimeRef = useRef<number>(performance.now());
 	const smoothBassRef = useRef<number>(0);
 	const imageRef = useRef<HTMLImageElement | null>(null);
@@ -705,6 +806,10 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
 				} else if (mode === "waveform") {
 					drawWaveform(ctx, timeData, width, height, settings);
+				} else if (mode === "ridgeReflection") {
+					drawRidgeReflection(ctx, frequencyData, width, height, sampleRate, settings);
+				} else if (mode === "dualLayerWave") {
+					drawDualLayerWave(ctx, frequencyData, width, height, sampleRate, settings);
 				} else {
 					drawCircular(ctx, frequencyData, width, height, sampleRate, settings);
 				}
