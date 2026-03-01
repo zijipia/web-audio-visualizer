@@ -26,6 +26,23 @@ export interface SpectrumSettings {
 	overlayTextSize: number;
 	overlayTextY: number;
 	overlayTextOpacity: number;
+	overlayTextX: number;
+	overlayTextScale: number;
+	overlayTextBlur: number;
+	overlayTextWiggle: number;
+	overlayTextReactStrength: number;
+	overlayTextReactGlow: number;
+	overlayTextReactMinHz: number;
+	overlayTextReactMaxHz: number;
+	backgroundScale: number;
+	backgroundBlur: number;
+	backgroundWiggle: number;
+	backgroundX: number;
+	backgroundY: number;
+	backgroundReactStrength: number;
+	backgroundGlow: number;
+	backgroundReactMinHz: number;
+	backgroundReactMaxHz: number;
 }
 
 interface Particle {
@@ -89,12 +106,28 @@ function createGradient(ctx: CanvasRenderingContext2D, width: number, height: nu
 	return gradient;
 }
 
+function resolveBandEnergy(data: Uint8Array, sampleRate: number, minHz: number, maxHz: number, sensitivity = 1) {
+	if (!data.length) return 0;
+	const nyquist = sampleRate / 2;
+	const safeMin = Math.max(0, Math.min(minHz, nyquist));
+	const safeMax = Math.max(safeMin + 1, Math.min(maxHz, nyquist));
+	const start = Math.floor((safeMin / nyquist) * data.length);
+	const end = Math.max(start + 1, Math.floor((safeMax / nyquist) * data.length));
+
+	let sum = 0;
+	for (let i = start; i < end; i += 1) sum += data[i] ?? 0;
+	const average = sum / Math.max(1, end - start);
+	return Math.max(0, Math.min(1, (average / 255) * sensitivity));
+}
+
 function drawBackground(
 	ctx: CanvasRenderingContext2D,
 	width: number,
 	height: number,
 	bassIntensity: number,
+	backgroundReact: number,
 	bgImage: HTMLImageElement | null,
+	settings: SpectrumSettings,
 	smoothBassRef: { current: number },
 	particles: Particle[],
 	deltaMs: number,
@@ -106,15 +139,19 @@ function drawBackground(
 	ctx.fillStyle = "#050812";
 	ctx.fillRect(0, 0, width, height);
 
+	const react = Math.max(0, Math.min(1, backgroundReact));
+	const wiggleX = Math.sin(performance.now() * 0.005) * settings.backgroundWiggle * (0.3 + react);
+	const wiggleY = Math.cos(performance.now() * 0.0065) * settings.backgroundWiggle * (0.3 + react);
+
 	if (bgImage) {
-		const scale = 1.08 + smoothBass * 0.1;
+		const scale = settings.backgroundScale + react * settings.backgroundReactStrength;
 		const drawWidth = width * scale;
 		const drawHeight = height * scale;
-		const x = (width - drawWidth) / 2;
-		const y = (height - drawHeight) / 2;
+		const x = (width - drawWidth) / 2 + settings.backgroundX + wiggleX;
+		const y = (height - drawHeight) / 2 + settings.backgroundY + wiggleY;
 
 		ctx.globalAlpha = 0.56 + smoothBass * 0.18;
-		ctx.filter = `brightness(${0.5 + smoothBass * 0.35}) saturate(${1.05 + smoothBass * 0.35})`;
+		ctx.filter = `brightness(${0.5 + smoothBass * 0.35 + react * 0.2}) saturate(${1.05 + smoothBass * 0.35 + react * 0.35}) blur(${settings.backgroundBlur + react * settings.backgroundBlur * 0.6}px)`;
 		ctx.drawImage(bgImage, x, y, drawWidth, drawHeight);
 		ctx.filter = "none";
 		ctx.globalAlpha = 1;
@@ -131,7 +168,7 @@ function drawBackground(
 	ctx.fillRect(0, 0, width, height);
 
 	const pulse = ctx.createRadialGradient(width * 0.5, height * 0.45, width * 0.08, width * 0.5, height * 0.45, width * 0.7);
-	pulse.addColorStop(0, `rgba(251, 146, 60, ${0.14 + smoothBass * 0.35})`);
+	pulse.addColorStop(0, `rgba(251, 146, 60, ${0.14 + smoothBass * 0.35 + react * settings.backgroundGlow * 0.5})`);
 	pulse.addColorStop(0.3, `rgba(245, 158, 11, ${0.09 + smoothBass * 0.2})`);
 	pulse.addColorStop(0.8, "rgba(2, 132, 199, 0.04)");
 	pulse.addColorStop(1, "rgba(2, 132, 199, 0)");
@@ -324,23 +361,32 @@ function drawCircular(ctx: CanvasRenderingContext2D, data: Uint8Array, width: nu
 }
 
 
-function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number) {
+function drawOverlayText(ctx: CanvasRenderingContext2D, width: number, height: number, settings: SpectrumSettings, bassIntensity: number, textReact: number) {
 	const text = settings.overlayText.trim();
 	if (!text) return;
 
 	const size = Math.max(16, settings.overlayTextSize);
 	const y = Math.max(40, Math.min(height - 24, settings.overlayTextY));
+	const x = width / 2 + settings.overlayTextX;
 	const alpha = Math.max(0, Math.min(1, settings.overlayTextOpacity));
-	const pulse = 0.82 + bassIntensity * 0.3;
+	const react = Math.max(0, Math.min(1, textReact));
+	const pulse = 0.82 + bassIntensity * 0.3 + react * settings.overlayTextReactStrength * 0.25;
+	const dynamicScale = settings.overlayTextScale + react * settings.overlayTextReactStrength;
+	const wiggle = settings.overlayTextWiggle * react;
+	const wiggleX = Math.sin(performance.now() * 0.01) * wiggle;
+	const wiggleY = Math.cos(performance.now() * 0.012) * wiggle;
 
 	ctx.save();
+	ctx.translate(x + wiggleX, y + wiggleY);
+	ctx.scale(dynamicScale, dynamicScale);
 	ctx.font = `700 ${size}px Inter, system-ui, sans-serif`;
 	ctx.textAlign = "center";
 	ctx.textBaseline = "middle";
-	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4})`;
-	ctx.shadowBlur = 14 + bassIntensity * 24;
+	ctx.filter = `blur(${settings.overlayTextBlur + react * settings.overlayTextBlur * 0.7}px)`;
+	ctx.shadowColor = `rgba(34, 211, 238, ${0.35 + bassIntensity * 0.4 + react * settings.overlayTextReactGlow * 0.6})`;
+	ctx.shadowBlur = 14 + bassIntensity * 24 + react * settings.overlayTextReactGlow * 36;
 	ctx.fillStyle = `rgba(241, 245, 249, ${alpha * pulse})`;
-	ctx.fillText(text, width / 2, y);
+	ctx.fillText(text, 0, 0);
 	ctx.restore();
 }
 
@@ -418,7 +464,22 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 
 			const draw = (ctx: CanvasRenderingContext2D, width: number, height: number, particles: Particle[]) => {
 				ctx.clearRect(0, 0, width, height);
-				drawBackground(ctx, width, height, bassIntensity, imageRef.current, smoothBassRef, particles, deltaMs);
+				const textReact = resolveBandEnergy(
+					frequencyData,
+					sampleRate,
+					settings.overlayTextReactMinHz,
+					settings.overlayTextReactMaxHz,
+					settings.sensitivity,
+				);
+				const backgroundReact = resolveBandEnergy(
+					frequencyData,
+					sampleRate,
+					settings.backgroundReactMinHz,
+					settings.backgroundReactMaxHz,
+					settings.sensitivity,
+				);
+
+				drawBackground(ctx, width, height, bassIntensity, backgroundReact, imageRef.current, settings, smoothBassRef, particles, deltaMs);
 
 				if (mode === "bars") {
 					drawBars(ctx, frequencyData, width, height, sampleRate, settings, barDisplayStateRef.current, deltaMs);
@@ -433,7 +494,7 @@ export function VisualizationCanvas({ frequencyData, timeData, sampleRate, mode,
 				const effectiveDuration = Math.max(0, Math.min(duration - offsetSec, preferredDuration));
 				const effectiveTime = Math.max(0, currentTime - offsetSec);
 
-				drawOverlayText(ctx, width, height, settings, bassIntensity);
+				drawOverlayText(ctx, width, height, settings, bassIntensity, textReact);
 				drawProgress(ctx, width, height, effectiveDuration, effectiveTime);
 			};
 
